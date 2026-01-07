@@ -152,9 +152,6 @@ try
     app.MapControllers();
     app.MapHub<NewsPortal.API.Hubs.ChatHub>("/chatHub");
 
-    app.MapGet("/ping", () => "PONG FROM RENDER").AllowAnonymous();
-
-
     app.Run();
 }
 catch (Exception ex)
