@@ -141,6 +141,7 @@ try
     }
     // app.UseHttpsRedirection();
 
+    app.MapSwagger().AllowAnonymous();
     app.UseCors("AllowFrontend");
 
     app.UseStaticFiles(); // Enable static file serving (for uploads)
@@ -156,11 +157,11 @@ try
         await next();
     });
 
-    //app.UseAuthentication(); // Enable Auth
+    app.UseAuthentication(); // Enable Auth
 
-   // app.UseAuthorization();
+    app.UseAuthorization();
 
-    app.MapControllers().AllowAnonymous();
+    app.MapControllers();
     app.MapHub<NewsPortal.API.Hubs.ChatHub>("/chatHub");
 
     app.Run();
