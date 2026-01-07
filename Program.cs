@@ -159,7 +159,7 @@ try
 
     app.UseAuthorization();
 
-    app.MapControllers();
+    app.MapControllers().AllowAnonymous();
     app.MapHub<NewsPortal.API.Hubs.ChatHub>("/chatHub");
 
     app.Run();
