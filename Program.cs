@@ -146,20 +146,13 @@ try
 
     app.UseStaticFiles(); // Enable static file serving (for uploads)
 
-    app.Use(async (context, next) =>
+    app.UseWhen(
+    context => !context.Request.Path.StartsWithSegments("/swagger"),
+    appBuilder =>
     {
-        if (context.Request.Path.StartsWithSegments("/swagger"))
-        {
-            await next();
-            return;
-        }
-
-        await next();
+        appBuilder.UseAuthentication();
+        appBuilder.UseAuthorization();
     });
-
-    app.UseAuthentication(); // Enable Auth
-
-    app.UseAuthorization();
 
     app.MapControllers();
     app.MapHub<NewsPortal.API.Hubs.ChatHub>("/chatHub");
