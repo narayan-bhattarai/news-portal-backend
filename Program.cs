@@ -68,7 +68,7 @@ try
     var app = builder.Build();
 
     // Global Exception Handling Middleware
-    app.UseMiddleware<ExceptionHandlingMiddleware>();
+   // app.UseMiddleware<ExceptionHandlingMiddleware>();
 
     // Ensure Database is Created
     //using (var scope = app.Services.CreateScope())
@@ -141,18 +141,13 @@ try
     }
     // app.UseHttpsRedirection();
 
-    app.MapSwagger().AllowAnonymous();
+    app.MapSwagger();
     app.UseCors("AllowFrontend");
 
     app.UseStaticFiles(); // Enable static file serving (for uploads)
 
-    //app.UseWhen(
-    //context => !context.Request.Path.StartsWithSegments("/swagger"),
-    //appBuilder =>
-    //{
-    //    appBuilder.UseAuthentication();
-    //    appBuilder.UseAuthorization();
-    //});
+    //app.UseAuthentication(); // Enable Auth
+    //app.UseAuthorization();
 
     app.MapControllers();
     app.MapHub<NewsPortal.API.Hubs.ChatHub>("/chatHub");
