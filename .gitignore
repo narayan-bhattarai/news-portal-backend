@@ -1,0 +1,18 @@
+# .NET build artifacts
+bin/
+obj/
+
+# Logs
+logs/
+*.log
+
+# User-specific
+*.user
+
+# Local database files
+*.db
+*.db-shm
+*.db-wal
+
+# Temp build files
+build*
