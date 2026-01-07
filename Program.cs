@@ -146,6 +146,17 @@ try
     app.UseStaticFiles(); // Enable static file serving (for uploads)
 
     app.UseAuthentication(); // Enable Auth
+    app.Use(async (context, next) =>
+    {
+        if (context.Request.Path.StartsWithSegments("/swagger"))
+        {
+            await next();
+            return;
+        }
+
+        await next();
+    });
+
     app.UseAuthorization();
 
     app.MapControllers();
