@@ -108,7 +108,7 @@ try
     //    // Explicitly seed Admin from Config if table is empty or missing admin
     //    var existingAdmin = context.Users.FirstOrDefault(u => u.Role == "Admin");
     //    var initialAdmin = config.GetSection("InitialAdminCredentials");
-        
+
     //    if (existingAdmin == null)
     //    {
     //        if (initialAdmin.Exists())
@@ -134,13 +134,11 @@ try
     //    context.SaveChanges();
     //}
 
-    // Configure the HTTP request pipeline.
-    if (app.Environment.IsDevelopment())
+    if (app.Environment.IsDevelopment() || app.Environment.IsProduction())
     {
         app.UseSwagger();
         app.UseSwaggerUI();
     }
-
     // app.UseHttpsRedirection();
 
     app.UseCors("AllowFrontend");
