@@ -16,3 +16,8 @@ logs/
 
 # Temp build files
 build*
+
+
+# Uploaded files
+uploads/
+wwwroot/uploads/
