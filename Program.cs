@@ -156,9 +156,9 @@ try
         await next();
     });
 
-    app.UseAuthentication(); // Enable Auth
+    //app.UseAuthentication(); // Enable Auth
 
-    app.UseAuthorization();
+   // app.UseAuthorization();
 
     app.MapControllers().AllowAnonymous();
     app.MapHub<NewsPortal.API.Hubs.ChatHub>("/chatHub");
