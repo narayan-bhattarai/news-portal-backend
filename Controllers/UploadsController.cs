@@ -30,23 +30,16 @@ namespace NewsPortal.API.Controllers
             var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_SERVICE_ROLE_KEY") ?? _configuration["Supabase:ServiceRoleKey"];
             var bucketName = "news-portal-images"; 
 
-            // Auto-format URL if only the ID was provided (e.g. from the user's recent screenshot)
-            if (!string.IsNullOrEmpty(supabaseUrl) && !supabaseUrl.Contains(".") && !supabaseUrl.StartsWith("http"))
-            {
-                supabaseUrl = $"https://{supabaseUrl}.supabase.co";
-                Console.WriteLine($"[Storage] Auto-formatted Supabase ID to URL: {supabaseUrl}");
-            }
-
             // If Supabase is configured, upload there
             if (!string.IsNullOrEmpty(supabaseUrl) && !string.IsNullOrEmpty(supabaseKey))
             {
                 try
                 {
-                    Console.WriteLine($"[Storage] Attempting Supabase upload to bucket: {bucketName}");
+                    Console.WriteLine($"[Storage] Attempting Supabase upload to: {supabaseUrl}");
                     var fileName = Guid.NewGuid().ToString() + Path.GetExtension(file.FileName);
                     var uploadUrl = $"{supabaseUrl.TrimEnd('/')}/storage/v1/object/{bucketName}/{fileName}";
 
-                    using (var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) })
+                    using (var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) })
                     {
                         client.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
                         
@@ -59,27 +52,26 @@ namespace NewsPortal.API.Controllers
                             if (response.IsSuccessStatusCode)
                             {
                                 var publicUrl = $"{supabaseUrl.TrimEnd('/')}/storage/v1/object/public/{bucketName}/{fileName}";
-                                Console.WriteLine($"[Storage] Supabase upload success: {publicUrl}");
                                 return Ok(new { url = publicUrl });
                             }
                             else
                             {
                                 var errorResp = await response.Content.ReadAsStringAsync();
-                                Console.WriteLine($"[Storage] Supabase upload failed with status {response.StatusCode}: {errorResp}");
-                                // If it's a 403/404, the bucket might not exist or keys are wrong.
-                                return StatusCode((int)response.StatusCode, new { Message = "Cloud storage refused upload.", Detail = errorResp });
+                                Console.WriteLine($"[Storage] Supabase Upload Error ({response.StatusCode}): {errorResp}");
+                                // Provide clearer feedback for common cloud issues
+                                string customMsg = "Cloud storage error.";
+                                if (errorResp.Contains("Bucket not found")) customMsg = "Storage bucket 'news-portal-images' not found in Supabase. Please create it.";
+                                if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized) customMsg = "Supabase API Key is invalid.";
+                                
+                                return StatusCode((int)response.StatusCode, new { Message = customMsg, Detail = errorResp });
                             }
                         }
                     }
                 }
-                catch (TaskCanceledException)
-                {
-                    Console.WriteLine("[Storage] Supabase upload timed out.");
-                    return StatusCode(504, new { Message = "Cloud storage request timed out. Please try again." });
-                }
                 catch (Exception ex)
                 {
-                    Console.WriteLine($"[Storage] Supabase Upload Exception: {ex.Message}");
+                    Console.WriteLine($"[Storage] Critical Upload Exception: {ex.Message}");
+                    return StatusCode(500, new { Message = "Server encountered an error during cloud upload.", Detail = ex.Message });
                 }
             }
             else
