@@ -20,8 +20,13 @@ public class ChatHub : Hub
         if (!string.IsNullOrEmpty(username))
         {
             // Add user to their own private group (lowercased for consistency)
-            await Groups.AddToGroupAsync(Context.ConnectionId, username.ToLower());
-            Console.WriteLine($"[Chat] User {username} connected to SignalR.");
+            string groupName = username.Trim().ToLower();
+            await Groups.AddToGroupAsync(Context.ConnectionId, groupName);
+            Console.WriteLine($"[ChatHub] User '{username}' joined group '{groupName}'");
+        }
+        else 
+        {
+             Console.WriteLine("[ChatHub] Warning: Connection established without identity.");
         }
         await base.OnConnectedAsync();
     }
@@ -31,16 +36,17 @@ public class ChatHub : Hub
         var senderUsername = Context.User?.Identity?.Name;
         if (string.IsNullOrEmpty(senderUsername))
         {
-            Console.WriteLine("[Chat] SendMessage failed: Connection is unauthenticated.");
+            Console.WriteLine("[ChatHub] SendMessage failed: Anonymous connection.");
             return;
         }
 
-        var sender = await _context.Users.FirstOrDefaultAsync(u => u.Username == senderUsername);
-        var receiver = await _context.Users.FirstOrDefaultAsync(u => u.Username == receiverUsername);
+        // Case-insensitive lookups for security and reliability
+        var sender = await _context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == senderUsername.ToLower());
+        var receiver = await _context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == receiverUsername.ToLower());
 
         if (sender == null || receiver == null)
         {
-            Console.WriteLine($"[Chat] SendMessage failed: Sender ({senderUsername}) or Receiver ({receiverUsername}) not found in DB.");
+            Console.WriteLine($"[ChatHub] SendMessage ERROR: User lookup failed. Sender: '{senderUsername}' (found: {sender!=null}), Receiver: '{receiverUsername}' (found: {receiver!=null})");
             return;
         }
 
@@ -56,9 +62,14 @@ public class ChatHub : Hub
         _context.ChatMessages.Add(chatMsg);
         await _context.SaveChangesAsync();
 
-        // Send ONLY to the receiver and the sender's other devices
-        await Clients.Group(receiverUsername.ToLower()).SendAsync("ReceiveMessage", senderUsername, receiverUsername, message, chatMsg.Timestamp);
-        await Clients.Caller.SendAsync("ReceiveMessage", senderUsername, receiverUsername, message, chatMsg.Timestamp);
+        // Send to participants using lowercased group names
+        string senderGroup = senderUsername.Trim().ToLower();
+        string receiverGroup = receiverUsername.Trim().ToLower();
+
+        await Clients.Group(receiverGroup).SendAsync("ReceiveMessage", senderUsername, receiverUsername, message, chatMsg.Timestamp);
+        await Clients.Group(senderGroup).SendAsync("ReceiveMessage", senderUsername, receiverUsername, message, chatMsg.Timestamp);
+        
+        Console.WriteLine($"[ChatHub] Message delivered: {senderUsername} -> {receiverUsername}");
     }
 
     public async Task MarkAsRead(string senderOfMessagesUsername)
@@ -84,8 +95,11 @@ public class ChatHub : Hub
             await _context.SaveChangesAsync();
             
             // Notify participants
-            await Clients.Group(senderOfMessagesUsername.ToLower()).SendAsync("MessagesRead", readerUsername, senderOfMessagesUsername);
-            await Clients.Caller.SendAsync("MessagesRead", readerUsername, senderOfMessagesUsername);
+            string readerGroup = readerUsername.Trim().ToLower();
+            string senderGroup = senderOfMessagesUsername.Trim().ToLower();
+
+            await Clients.Group(readerGroup).SendAsync("MessagesRead", readerUsername, senderOfMessagesUsername);
+            await Clients.Group(senderGroup).SendAsync("MessagesRead", readerUsername, senderOfMessagesUsername);
         }
     }
 }
