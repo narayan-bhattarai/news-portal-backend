@@ -78,12 +78,13 @@ try
     // Global Exception Handling
     app.UseMiddleware<ExceptionHandlingMiddleware>();
 
-    // Swagger only in Development
-    if (app.Environment.IsDevelopment())
+    // Enable Swagger for all environments (useful for testing on Render)
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
     {
-        app.UseSwagger();
-        app.UseSwaggerUI();
-    }
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "NewsPortal.API v1");
+        c.RoutePrefix = "swagger"; // This ensures it stays at /swagger
+    });
 
     app.UseStaticFiles(); // Served uploads, etc.
     app.UseRouting();
