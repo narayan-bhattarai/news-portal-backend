@@ -33,10 +33,10 @@ try
     builder.Services.AddDbContext<NewsContext>(options =>
         options.UseNpgsql(connectionString, npgsqlOptions => {
             npgsqlOptions.EnableRetryOnFailure(
-                maxRetryCount: 5,
-                maxRetryDelay: TimeSpan.FromSeconds(10),
+                maxRetryCount: 10,
+                maxRetryDelay: TimeSpan.FromSeconds(30),
                 errorCodesToAdd: null);
-            npgsqlOptions.CommandTimeout(60); // Increase to 60s for Render free tier
+            npgsqlOptions.CommandTimeout(120); // Increase to 120s to match logs (122s delay)
         }));
 
     // JWT Authentication - Prioritize Environment Variable
