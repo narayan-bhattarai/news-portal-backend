@@ -5,6 +5,7 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Serilog;
 using NewsPortal.API.Middleware;
+using System.Security.Claims;
 
 // Configure Serilog
 Log.Logger = new LoggerConfiguration()
