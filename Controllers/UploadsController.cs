@@ -30,11 +30,19 @@ namespace NewsPortal.API.Controllers
             var supabaseKey = Environment.GetEnvironmentVariable("SUPABASE_SERVICE_ROLE_KEY") ?? _configuration["Supabase:ServiceRoleKey"];
             var bucketName = "news-portal-images"; 
 
+            // Auto-format URL if only the ID was provided (e.g. from the user's recent screenshot)
+            if (!string.IsNullOrEmpty(supabaseUrl) && !supabaseUrl.Contains(".") && !supabaseUrl.StartsWith("http"))
+            {
+                supabaseUrl = $"https://{supabaseUrl}.supabase.co";
+                Console.WriteLine($"[Storage] Auto-formatted Supabase ID to URL: {supabaseUrl}");
+            }
+
             // If Supabase is configured, upload there
             if (!string.IsNullOrEmpty(supabaseUrl) && !string.IsNullOrEmpty(supabaseKey))
             {
                 try
                 {
+                    Console.WriteLine($"[Storage] Attempting Supabase upload to bucket: {bucketName}");
                     var fileName = Guid.NewGuid().ToString() + Path.GetExtension(file.FileName);
                     var uploadUrl = $"{supabaseUrl.TrimEnd('/')}/storage/v1/object/{bucketName}/{fileName}";
 
@@ -50,18 +58,26 @@ namespace NewsPortal.API.Controllers
 
                             if (response.IsSuccessStatusCode)
                             {
-                                // Return the public URL directly
                                 var publicUrl = $"{supabaseUrl.TrimEnd('/')}/storage/v1/object/public/{bucketName}/{fileName}";
+                                Console.WriteLine($"[Storage] Supabase upload success: {publicUrl}");
                                 return Ok(new { url = publicUrl });
+                            }
+                            else
+                            {
+                                var errorResp = await response.Content.ReadAsStringAsync();
+                                Console.WriteLine($"[Storage] Supabase upload failed with status {response.StatusCode}: {errorResp}");
                             }
                         }
                     }
                 }
                 catch (Exception ex)
                 {
-                    // If Supabase fails, we will fall back to local as a safety measure
-                    Console.WriteLine($"Supabase Upload Error: {ex.Message}");
+                    Console.WriteLine($"[Storage] Supabase Upload Exception: {ex.Message}");
                 }
+            }
+            else
+            {
+                Console.WriteLine("[Storage] Supabase not configured. Using ephemeral local storage fallback.");
             }
 
             // Fallback: Local upload (Ephemeral on Render)

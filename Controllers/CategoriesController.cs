@@ -18,9 +18,18 @@ public class CategoriesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IEnumerable<Category>> Get()
+    public async Task<IActionResult> Get()
     {
-        return await _context.Categories.ToListAsync();
+        try
+        {
+            var categories = await _context.Categories.AsNoTracking().ToListAsync();
+            return Ok(categories);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Error fetching categories");
+            return StatusCode(500, new { Message = "Failed to load categories. Possible database timeout. Please refresh.", Detail = ex.Message });
+        }
     }
 
     [HttpPost]

@@ -29,38 +29,53 @@ public class ChatController : ControllerBase
 
     [HttpGet]
     [Authorize]
-    public async Task<IEnumerable<MessageDto>> GetHistory()
+    public async Task<IActionResult> GetHistory()
     {
-        var username = User.Identity?.Name;
-        if (string.IsNullOrEmpty(username)) return new List<MessageDto>();
-
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
-        if (user == null) return new List<MessageDto>();
-
-        var currentUserId = user.Id;
-        var deleteToken = "," + currentUserId + ",";
-
-        var allMessages = await _context.ChatMessages
-            .Where(m => (m.SenderUserId == currentUserId || m.ReceiverUserId == currentUserId) &&
-                        !m.DeletedFor.Contains(deleteToken))
-            .OrderByDescending(m => m.Timestamp)
-            .Take(100)
-            .ToListAsync();
-
-        var userIds = allMessages.SelectMany(m => new[] { m.SenderUserId, m.ReceiverUserId }).Distinct().ToList();
-        var userMap = await _context.Users
-            .Where(u => userIds.Contains(u.Id))
-            .ToDictionaryAsync(u => u.Id, u => u.Username);
-
-        return allMessages.Select(m => new MessageDto
+        try
         {
-            Id = m.Id,
-            Sender = userMap.GetValueOrDefault(m.SenderUserId) ?? "Unknown",
-            Receiver = userMap.GetValueOrDefault(m.ReceiverUserId) ?? "Unknown",
-            Content = m.Content,
-            Timestamp = m.Timestamp,
-            IsRead = m.IsRead
-        }).OrderBy(m => m.Timestamp);
+            var username = User.Identity?.Name;
+            if (string.IsNullOrEmpty(username)) return Ok(new List<MessageDto>());
+
+            var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Username == username);
+            if (user == null) return Ok(new List<MessageDto>());
+
+            var currentUserId = user.Id;
+            var deleteToken = "," + currentUserId + ",";
+
+            // Use string.Concat or check for null to avoid 500 in Postgres if DeletedFor is null
+            var allMessages = await _context.ChatMessages.AsNoTracking()
+                .Where(m => (m.SenderUserId == currentUserId || m.ReceiverUserId == currentUserId))
+                .OrderByDescending(m => m.Timestamp)
+                .Take(100)
+                .ToListAsync();
+
+            // Filter in-memory for DeletedFor to avoid EF Core 500s on null columns
+            var filteredMessages = allMessages
+                .Where(m => string.IsNullOrEmpty(m.DeletedFor) || !m.DeletedFor.Contains(deleteToken))
+                .ToList();
+
+            var userIds = filteredMessages.SelectMany(m => new[] { m.SenderUserId, m.ReceiverUserId }).Distinct().ToList();
+            var userMap = await _context.Users.AsNoTracking()
+                .Where(u => userIds.Contains(u.Id))
+                .ToDictionaryAsync(u => u.Id, u => u.Username);
+
+            var result = filteredMessages.Select(m => new MessageDto
+            {
+                Id = m.Id,
+                Sender = userMap.GetValueOrDefault(m.SenderUserId) ?? "Unknown",
+                Receiver = userMap.GetValueOrDefault(m.ReceiverUserId) ?? "Unknown",
+                Content = m.Content,
+                Timestamp = m.Timestamp,
+                IsRead = m.IsRead
+            }).OrderBy(m => m.Timestamp).ToList();
+
+            return Ok(result);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Error fetching chat history.");
+            return StatusCode(500, new { Message = "Failed to load chat history. Check if ChatMessages table exists and has ReceiverUserId column.", Detail = ex.Message });
+        }
     }
 
     [HttpDelete]

@@ -17,35 +17,44 @@ public class ArticlesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IEnumerable<Article>> Get([FromQuery] string? search, [FromQuery] string? category)
+    public async Task<IActionResult> Get([FromQuery] string? search, [FromQuery] string? category)
     {
-        var query = _context.Articles.AsQueryable();
-
-        if (!string.IsNullOrWhiteSpace(search))
+        try
         {
-            query = query.Where(a => EF.Functions.ILike(a.Title, $"%{search}%") || 
-                                     EF.Functions.ILike(a.Excerpt, $"%{search}%") ||
-                                     EF.Functions.ILike(a.Category, $"%{search}%"));
-        }
+            var query = _context.Articles.AsNoTracking().AsQueryable();
 
-        if (!string.IsNullOrWhiteSpace(category))
+            if (!string.IsNullOrWhiteSpace(search))
+            {
+                query = query.Where(a => EF.Functions.ILike(a.Title, $"%{search}%") || 
+                                         EF.Functions.ILike(a.Excerpt, $"%{search}%") ||
+                                         EF.Functions.ILike(a.Category, $"%{search}%"));
+            }
+
+            if (!string.IsNullOrWhiteSpace(category))
+            {
+                query = query.Where(a => EF.Functions.ILike(a.Category, category));
+            }
+
+            var results = await query.OrderByDescending(a => a.Id).ToListAsync();
+            return Ok(results);
+        }
+        catch (Exception ex)
         {
-            query = query.Where(a => EF.Functions.ILike(a.Category, category));
+            Serilog.Log.Error(ex, "Database error fetching articles. This is often a timeout on Render's free tier.");
+            return StatusCode(500, new { Message = "Database connection error (Possible timeout). Please wait 30 seconds and refresh.", Detail = ex.Message });
         }
-
-        return await query.OrderByDescending(a => a.Id).ToListAsync();
     }
 
     [HttpGet("trending")]
     public async Task<IEnumerable<Article>> GetTrending()
     {
-        return await _context.Articles.Where(a => a.IsTrending).ToListAsync();
+        return await _context.Articles.AsNoTracking().Where(a => a.IsTrending).ToListAsync();
     }
     
     [HttpGet("editors-picks")]
     public async Task<IEnumerable<Article>> GetEditorsPicks()
     {
-        return await _context.Articles.Where(a => a.IsTrending).Take(2).ToListAsync();
+        return await _context.Articles.AsNoTracking().Where(a => a.IsTrending).Take(2).ToListAsync();
     }
 
     [HttpGet("{id}")]

@@ -17,12 +17,22 @@ public class UsersController : ControllerBase
         _context = context;
     }
 
-    [HttpGet]
-    [Authorize] // Ideally restrict to Role="Admin"
-    public async Task<ActionResult<IEnumerable<User>>> GetUsers()
+    public class UserDto
     {
-        // Don't return passwords
-        return await _context.Users.Select(u => new User { 
+        public int Id { get; set; }
+        public string Username { get; set; } = string.Empty;
+        public string Role { get; set; } = string.Empty;
+        public string? Email { get; set; }
+        public string? FullName { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public string PublicKey { get; set; } = string.Empty;
+    }
+
+    [HttpGet]
+    [Authorize]
+    public async Task<ActionResult<IEnumerable<UserDto>>> GetUsers()
+    {
+        return await _context.Users.AsNoTracking().Select(u => new UserDto { 
             Id = u.Id, 
             Username = u.Username, 
             Role = u.Role,
