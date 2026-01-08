@@ -46,7 +46,7 @@ namespace NewsPortal.API.Controllers
                     var fileName = Guid.NewGuid().ToString() + Path.GetExtension(file.FileName);
                     var uploadUrl = $"{supabaseUrl.TrimEnd('/')}/storage/v1/object/{bucketName}/{fileName}";
 
-                    using (var client = new HttpClient())
+                    using (var client = new HttpClient { Timeout = TimeSpan.FromSeconds(15) })
                     {
                         client.DefaultRequestHeaders.Add("Authorization", $"Bearer {supabaseKey}");
                         
@@ -66,9 +66,16 @@ namespace NewsPortal.API.Controllers
                             {
                                 var errorResp = await response.Content.ReadAsStringAsync();
                                 Console.WriteLine($"[Storage] Supabase upload failed with status {response.StatusCode}: {errorResp}");
+                                // If it's a 403/404, the bucket might not exist or keys are wrong.
+                                return StatusCode((int)response.StatusCode, new { Message = "Cloud storage refused upload.", Detail = errorResp });
                             }
                         }
                     }
+                }
+                catch (TaskCanceledException)
+                {
+                    Console.WriteLine("[Storage] Supabase upload timed out.");
+                    return StatusCode(504, new { Message = "Cloud storage request timed out. Please try again." });
                 }
                 catch (Exception ex)
                 {

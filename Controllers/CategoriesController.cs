@@ -36,9 +36,29 @@ public class CategoriesController : ControllerBase
     [Authorize]
     public async Task<IActionResult> Create([FromBody] Category category)
     {
-        _context.Categories.Add(category);
-        await _context.SaveChangesAsync();
-        return CreatedAtAction(nameof(Get), new { id = category.Id }, category);
+        try
+        {
+            if (string.IsNullOrWhiteSpace(category.Name))
+            {
+                return BadRequest(new { Message = "Category name is required." });
+            }
+
+            // Case-insensitive duplicate check
+            var exists = await _context.Categories.AnyAsync(c => c.Name.ToLower() == category.Name.ToLower());
+            if (exists)
+            {
+                return BadRequest(new { Message = $"Category '{category.Name}' already exists." });
+            }
+
+            _context.Categories.Add(category);
+            await _context.SaveChangesAsync();
+            return CreatedAtAction(nameof(Get), new { id = category.Id }, category);
+        }
+        catch (Exception ex)
+        {
+            Serilog.Log.Error(ex, "Error creating category");
+            return StatusCode(500, new { Message = "Failed to create category. Database connection issue.", Detail = ex.Message });
+        }
     }
 
     [HttpPut("{id}")]
@@ -64,7 +84,7 @@ public class CategoriesController : ControllerBase
         var isUsed = await _context.Articles.AnyAsync(a => a.Category == category.Name);
         if (isUsed)
         {
-            return BadRequest("Category is in use by one or more articles.");
+            return BadRequest(new { Message = "Category is in use by one or more articles. Change the articles first." });
         }
 
         _context.Categories.Remove(category);
