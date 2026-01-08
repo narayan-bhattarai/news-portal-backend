@@ -31,7 +31,13 @@ try
                          ?? builder.Configuration.GetConnectionString("DefaultConnection");
 
     builder.Services.AddDbContext<NewsContext>(options =>
-        options.UseNpgsql(connectionString));
+        options.UseNpgsql(connectionString, npgsqlOptions => {
+            npgsqlOptions.EnableRetryOnFailure(
+                maxRetryCount: 5,
+                maxRetryDelay: TimeSpan.FromSeconds(10),
+                errorCodesToAdd: null);
+            npgsqlOptions.CommandTimeout(60); // Increase to 60s for Render free tier
+        }));
 
     // JWT Authentication - Prioritize Environment Variable
     var jwtKey = Environment.GetEnvironmentVariable("JWT_SECRET") 
