@@ -14,15 +14,35 @@ public class ChatHub : Hub
         _context = context;
     }
 
+    public override async Task OnConnectedAsync()
+    {
+        var username = Context.User?.Identity?.Name;
+        if (!string.IsNullOrEmpty(username))
+        {
+            // Add user to their own private group (lowercased for consistency)
+            await Groups.AddToGroupAsync(Context.ConnectionId, username.ToLower());
+            Console.WriteLine($"[Chat] User {username} connected to SignalR.");
+        }
+        await base.OnConnectedAsync();
+    }
+
     public async Task SendMessage(string receiverUsername, string message)
     {
         var senderUsername = Context.User?.Identity?.Name;
-        if (string.IsNullOrEmpty(senderUsername)) return;
+        if (string.IsNullOrEmpty(senderUsername))
+        {
+            Console.WriteLine("[Chat] SendMessage failed: Connection is unauthenticated.");
+            return;
+        }
 
         var sender = await _context.Users.FirstOrDefaultAsync(u => u.Username == senderUsername);
         var receiver = await _context.Users.FirstOrDefaultAsync(u => u.Username == receiverUsername);
 
-        if (sender == null || receiver == null) return;
+        if (sender == null || receiver == null)
+        {
+            Console.WriteLine($"[Chat] SendMessage failed: Sender ({senderUsername}) or Receiver ({receiverUsername}) not found in DB.");
+            return;
+        }
 
         var chatMsg = new ChatMessage
         {
@@ -36,8 +56,9 @@ public class ChatHub : Hub
         _context.ChatMessages.Add(chatMsg);
         await _context.SaveChangesAsync();
 
-        // Broadcast with usernames for UI display, while using IDs for DB
-        await Clients.All.SendAsync("ReceiveMessage", senderUsername, receiverUsername, message, chatMsg.Timestamp);
+        // Send ONLY to the receiver and the sender's other devices
+        await Clients.Group(receiverUsername.ToLower()).SendAsync("ReceiveMessage", senderUsername, receiverUsername, message, chatMsg.Timestamp);
+        await Clients.Caller.SendAsync("ReceiveMessage", senderUsername, receiverUsername, message, chatMsg.Timestamp);
     }
 
     public async Task MarkAsRead(string senderOfMessagesUsername)
@@ -61,7 +82,10 @@ public class ChatHub : Hub
                 msg.IsRead = true;
             }
             await _context.SaveChangesAsync();
-            await Clients.All.SendAsync("MessagesRead", readerUsername, senderOfMessagesUsername); 
+            
+            // Notify participants
+            await Clients.Group(senderOfMessagesUsername.ToLower()).SendAsync("MessagesRead", readerUsername, senderOfMessagesUsername);
+            await Clients.Caller.SendAsync("MessagesRead", readerUsername, senderOfMessagesUsername);
         }
     }
 }
