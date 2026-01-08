@@ -21,22 +21,25 @@ public class ChatController : ControllerBase
     [Authorize]
     public async Task<IEnumerable<ChatMessage>> GetHistory()
     {
-        var currentUser = User.Identity?.Name?.ToLower();
-        if (string.IsNullOrEmpty(currentUser)) return new List<ChatMessage>();
+        var username = User.Identity?.Name;
+        if (string.IsNullOrEmpty(username)) return new List<ChatMessage>();
 
-        // We explicitly construct the comma-search pattern for safety
-        var deleteToken = "," + currentUser + ",";
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+        if (user == null) return new List<ChatMessage>();
+
+        var currentUserId = user.Id;
+        var deleteToken = "," + currentUserId + ",";
 
         // Return last 50 messages OR all unread messages for the user
         // We fetch a bit more to be safe, or split logic. 
         // Simple approach: Get unread first, then recent history, then combine.
         var unreadMessages = await _context.ChatMessages
-            .Where(m => m.Receiver.ToLower() == currentUser && !m.IsRead && !m.DeletedFor.ToLower().Contains(deleteToken))
+            .Where(m => m.ReceiverUserId == currentUserId && !m.IsRead && !m.DeletedFor.Contains(deleteToken))
             .ToListAsync();
 
         var recentMessages = await _context.ChatMessages
-            .Where(m => (m.Sender.ToLower() == currentUser || m.Receiver.ToLower() == currentUser) &&
-                        !m.DeletedFor.ToLower().Contains(deleteToken))
+            .Where(m => (m.SenderUserId == currentUserId || m.ReceiverUserId == currentUserId) &&
+                        !m.DeletedFor.Contains(deleteToken))
             .OrderByDescending(m => m.Timestamp)
             .Take(50)
             .ToListAsync();
@@ -65,51 +68,50 @@ public class ChatController : ControllerBase
     [Authorize]
     public async Task<IActionResult> DeleteConversation(string username)
     {
-        var currentUser = User.Identity?.Name?.ToLower();
-        if (string.IsNullOrEmpty(currentUser)) return Unauthorized();
-        var targetUser = username.ToLower();
+        var currentUsername = User.Identity?.Name;
+        if (string.IsNullOrEmpty(currentUsername)) return Unauthorized();
+
+        var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == currentUsername);
+        var targetUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+
+        if (currentUser == null || targetUser == null) return NotFound("User not found");
+
+        var currentId = currentUser.Id;
+        var targetId = targetUser.Id;
 
         // 1. Find messages between these two users
         var messages = await _context.ChatMessages.Where(m => 
-            (m.Sender.ToLower() == currentUser && m.Receiver.ToLower() == targetUser) || 
-            (m.Sender.ToLower() == targetUser && m.Receiver.ToLower() == currentUser)
+            (m.SenderUserId == currentId && m.ReceiverUserId == targetId) || 
+            (m.SenderUserId == targetId && m.ReceiverUserId == currentId)
         ).ToListAsync();
 
         // 2. Soft Delete logic
-        // 2. Soft Delete logic (Promote to Hard Delete if both sides deleted)
         var toDelete = new List<ChatMessage>();
         var toUpdate = new List<ChatMessage>();
 
         foreach (var msg in messages)
         {
-            // Ensure DeletedFor is initialized
             if (msg.DeletedFor == null) msg.DeletedFor = "";
 
-            var deleteToken = "," + currentUser + ",";
+            var deleteToken = "," + currentId + ",";
 
-            // If not already marked as deleted for this user
-            if (!msg.DeletedFor.ToLower().Contains(deleteToken))
+            if (!msg.DeletedFor.Contains(deleteToken))
             {
-                // If it's empty, start with a comma
                 if (string.IsNullOrEmpty(msg.DeletedFor))
                 {
-                    msg.DeletedFor = "," + currentUser + ",";
+                    msg.DeletedFor = "," + currentId + ",";
                 }
                 else
                 {
-                    // Append
-                    msg.DeletedFor += currentUser + ",";
+                    msg.DeletedFor += currentId + ",";
                 }
             }
 
             // Check if BOTH Sender and Receiver have deleted it
-            var senderToken = "," + msg.Sender.ToLower() + ",";
-            var receiverToken = "," + msg.Receiver.ToLower() + ",";
+            var senderToken = "," + msg.SenderUserId + ",";
+            var receiverToken = "," + msg.ReceiverUserId + ",";
             
-            // Check using Case Insensitive string check
-            var deletedForLower = msg.DeletedFor.ToLower();
-
-            if (deletedForLower.Contains(senderToken) && deletedForLower.Contains(receiverToken))
+            if (msg.DeletedFor.Contains(senderToken) && msg.DeletedFor.Contains(receiverToken))
             {
                 toDelete.Add(msg);
             }
@@ -120,14 +122,8 @@ public class ChatController : ControllerBase
         }
 
         // 3. Apply Changes
-        if (toDelete.Any()) 
-        {
-            _context.ChatMessages.RemoveRange(toDelete);
-        }
-        if (toUpdate.Any())
-        {
-            _context.ChatMessages.UpdateRange(toUpdate);
-        }
+        if (toDelete.Any()) _context.ChatMessages.RemoveRange(toDelete);
+        if (toUpdate.Any()) _context.ChatMessages.UpdateRange(toUpdate);
         
         await _context.SaveChangesAsync();
         return Ok();

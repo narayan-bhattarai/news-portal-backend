@@ -13,30 +13,45 @@ public class ChatHub : Hub
         _context = context;
     }
 
-    public async Task SendMessage(string sender, string receiver, string message)
+    public async Task SendMessage(string receiverUsername, string message)
     {
+        var senderUsername = Context.User?.Identity?.Name;
+        if (string.IsNullOrEmpty(senderUsername)) return;
+
+        var sender = await _context.Users.FirstOrDefaultAsync(u => u.Username == senderUsername);
+        var receiver = await _context.Users.FirstOrDefaultAsync(u => u.Username == receiverUsername);
+
+        if (sender == null || receiver == null) return;
+
         var chatMsg = new ChatMessage
         {
-            Sender = sender,
-            Receiver = receiver,
+            SenderUserId = sender.Id,
+            ReceiverUserId = receiver.Id,
             Content = message,
-            Timestamp = DateTime.UtcNow
+            Timestamp = DateTime.UtcNow,
+            DeletedFor = ""
         };
 
         _context.ChatMessages.Add(chatMsg);
         await _context.SaveChangesAsync();
 
-        // Broadcast to everyone for simplicity in this MVP, 
-        // purely so "filtering" on frontend works without complex connection mapping.
-        // In prod, use Clients.User(receiverId).
-        await Clients.All.SendAsync("ReceiveMessage", sender, receiver, message, chatMsg.Timestamp);
+        // Broadcast with usernames for UI display, while using IDs for DB
+        await Clients.All.SendAsync("ReceiveMessage", senderUsername, receiverUsername, message, chatMsg.Timestamp);
     }
 
-    public async Task MarkAsRead(string reader, string senderOfMessages)
+    public async Task MarkAsRead(string senderOfMessagesUsername)
     {
-        var unread = _context.ChatMessages
-            .Where(m => m.Receiver.ToLower() == reader.ToLower() && m.Sender.ToLower() == senderOfMessages.ToLower() && !m.IsRead)
-            .ToList();
+        var readerUsername = Context.User?.Identity?.Name;
+        if (string.IsNullOrEmpty(readerUsername)) return;
+
+        var reader = await _context.Users.FirstOrDefaultAsync(u => u.Username == readerUsername);
+        var sender = await _context.Users.FirstOrDefaultAsync(u => u.Username == senderOfMessagesUsername);
+
+        if (reader == null || sender == null) return;
+
+        var unread = await _context.ChatMessages
+            .Where(m => m.ReceiverUserId == reader.Id && m.SenderUserId == sender.Id && !m.IsRead)
+            .ToListAsync();
 
         if (unread.Any())
         {
@@ -45,8 +60,7 @@ public class ChatHub : Hub
                 msg.IsRead = true;
             }
             await _context.SaveChangesAsync();
-            // Notify reader so they can update UI (optional but good)
-            await Clients.All.SendAsync("MessagesRead", reader, senderOfMessages); 
+            await Clients.All.SendAsync("MessagesRead", readerUsername, senderOfMessagesUsername); 
         }
     }
 }

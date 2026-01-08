@@ -52,7 +52,7 @@ public class ArticlesController : ControllerBase
     }
 
     [HttpGet("{id}")]
-    public async Task<IActionResult> GetArticle(string id)
+    public async Task<IActionResult> GetArticle(int id)
     {
         var article = await _context.Articles.FindAsync(id);
 
@@ -68,8 +68,6 @@ public class ArticlesController : ControllerBase
     [Microsoft.AspNetCore.Authorization.Authorize]
     public async Task<IActionResult> Create([FromBody] Article article)
     {
-        article.Id = Guid.NewGuid().ToString();
-        article.TimeAgo = "Just now"; 
         article.PublishedAt = DateTime.UtcNow; 
         
         _context.Articles.Add(article);
@@ -80,7 +78,7 @@ public class ArticlesController : ControllerBase
 
     [HttpPut("{id}")]
     [Microsoft.AspNetCore.Authorization.Authorize]
-    public async Task<IActionResult> Update(string id, [FromBody] Article article)
+    public async Task<IActionResult> Update(int id, [FromBody] Article article)
     {
         if (id != article.Id)
         {
@@ -102,7 +100,7 @@ public class ArticlesController : ControllerBase
         existingArticle.Content = article.Content; // Update content
         existingArticle.IsTrending = article.IsTrending;
         
-        // Don't update Id or TimeAgo logic for now
+        // Don't update Id
 
         try
         {
@@ -125,7 +123,7 @@ public class ArticlesController : ControllerBase
 
     [HttpDelete("{id}")]
     [Microsoft.AspNetCore.Authorization.Authorize]
-    public async Task<IActionResult> Delete(string id)
+    public async Task<IActionResult> Delete(int id)
     {
         var article = await _context.Articles.FindAsync(id);
         if (article == null) return NotFound();

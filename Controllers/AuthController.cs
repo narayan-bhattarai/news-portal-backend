@@ -77,7 +77,6 @@ public class AuthController : ControllerBase
         _context.SaveChanges();
 
         return Ok(new { message = "User created successfully" });
-        return Ok(new { message = "User created successfully" });
     }
 
     [HttpGet("keys")]

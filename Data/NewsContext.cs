@@ -18,23 +18,41 @@ public class NewsContext : DbContext
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
-        // Seed initial Articles
+        // Uniqueness Constraints
+        modelBuilder.Entity<Category>()
+            .HasIndex(c => c.Name)
+            .IsUnique();
+
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.Username)
+            .IsUnique();
+
+        // Performance Indexes
+        modelBuilder.Entity<Article>()
+            .HasIndex(a => a.Category);
+        
+        modelBuilder.Entity<Article>()
+            .HasIndex(a => a.PublishedAt);
+        
+        modelBuilder.Entity<Article>()
+            .HasIndex(a => a.IsTrending);
+
+        modelBuilder.Entity<User>()
+            .HasIndex(u => u.Role);
+
+        // Seed initial Articles (minimal)
         modelBuilder.Entity<Article>().HasData(
             new Article
             {
-                Id = "1",
+                Id = 1,
                 Category = "Technology",
-                Title = "The EV Revolution: New Solid-State Batteries Promise 1000km Range (Persistence Test)",
+                Title = "The EV Revolution: New Solid-State Batteries Promise 1000km Range",
                 Excerpt = "Major breakthroughs in battery technology are set to eliminate range anxiety and accelerate the transition to electric mobility.",
                 Author = "Sarah Chen",
-                TimeAgo = "2h ago",
                 ImageUrl = "/images/tech-ev.png",
-                IsTrending = true
+                IsTrending = true,
+                PublishedAt = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc)
             }
-            // ... (keeping other articles for brevity in this replace, but practically re-inserting them or assuming user wants them)
-            // Wait, replace_file_content replaces the BLOCK. I must be careful not to lose existing articles if I target the whole method.
-            // I will just Append to the end of the method by targeting the closing brace? No, `HasData` is fluent or separate calls.
-            // Better to add separate HasData calls for other entities.
         );
 
         modelBuilder.Entity<Category>().HasData(
@@ -50,13 +68,15 @@ public class NewsContext : DbContext
             { 
                 Slug = "about", 
                 Title = "About Us", 
-                Body = "Welcome to Khabar Manch..." 
+                Body = "Welcome to Khabar Manch...",
+                LastUpdated = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc)
             },
             new PageContent 
             { 
                 Slug = "careers", 
                 Title = "Careers", 
-                Body = "We are currently fully staffed..." 
+                Body = "We are currently fully staffed...",
+                LastUpdated = new DateTime(2025, 1, 1, 0, 0, 0, DateTimeKind.Utc)
             }
         );
     }
