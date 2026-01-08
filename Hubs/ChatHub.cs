@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
 using NewsPortal.API.Models;
 using NewsPortal.API.Data;
 
