@@ -126,8 +126,8 @@ public class UsersController : ControllerBase
 
         user.Username = request.Username;
         user.Role = request.Role;
-        user.Email = request.Email ?? user.Email;
-        user.FullName = request.FullName ?? user.FullName;
+        user.Email = request.Email;
+        user.FullName = request.FullName;
 
         if (!string.IsNullOrEmpty(request.NewPassword))
         {
