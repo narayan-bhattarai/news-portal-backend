@@ -23,17 +23,14 @@ public class ArticlesController : ControllerBase
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            search = search.ToLower();
-            query = query.Where(a => a.Title.ToLower().Contains(search) || 
-                                     a.Excerpt.ToLower().Contains(search) ||
-                                     a.Category.ToLower().Contains(search));
+            query = query.Where(a => EF.Functions.ILike(a.Title, $"%{search}%") || 
+                                     EF.Functions.ILike(a.Excerpt, $"%{search}%") ||
+                                     EF.Functions.ILike(a.Category, $"%{search}%"));
         }
 
         if (!string.IsNullOrWhiteSpace(category))
         {
-            // Case-insensitive exact match for category
-            var lowerCategory = category.ToLower();
-            query = query.Where(a => a.Category.ToLower() == lowerCategory);
+            query = query.Where(a => EF.Functions.ILike(a.Category, category));
         }
 
         return await query.OrderByDescending(a => a.Id).ToListAsync();

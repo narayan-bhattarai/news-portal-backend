@@ -17,37 +17,50 @@ public class ChatController : ControllerBase
         _context = context;
     }
 
+    public class MessageDto
+    {
+        public int Id { get; set; }
+        public string Sender { get; set; } = string.Empty;
+        public string Receiver { get; set; } = string.Empty;
+        public string Content { get; set; } = string.Empty;
+        public DateTime Timestamp { get; set; }
+        public bool IsRead { get; set; }
+    }
+
     [HttpGet]
     [Authorize]
-    public async Task<IEnumerable<ChatMessage>> GetHistory()
+    public async Task<IEnumerable<MessageDto>> GetHistory()
     {
         var username = User.Identity?.Name;
-        if (string.IsNullOrEmpty(username)) return new List<ChatMessage>();
+        if (string.IsNullOrEmpty(username)) return new List<MessageDto>();
 
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
-        if (user == null) return new List<ChatMessage>();
+        if (user == null) return new List<MessageDto>();
 
         var currentUserId = user.Id;
         var deleteToken = "," + currentUserId + ",";
 
-        // Return last 50 messages OR all unread messages for the user
-        // We fetch a bit more to be safe, or split logic. 
-        // Simple approach: Get unread first, then recent history, then combine.
-        var unreadMessages = await _context.ChatMessages
-            .Where(m => m.ReceiverUserId == currentUserId && !m.IsRead && !m.DeletedFor.Contains(deleteToken))
-            .ToListAsync();
-
-        var recentMessages = await _context.ChatMessages
+        var allMessages = await _context.ChatMessages
             .Where(m => (m.SenderUserId == currentUserId || m.ReceiverUserId == currentUserId) &&
                         !m.DeletedFor.Contains(deleteToken))
             .OrderByDescending(m => m.Timestamp)
-            .Take(50)
+            .Take(100)
             .ToListAsync();
-        
-        return unreadMessages.Concat(recentMessages)
-            .GroupBy(m => m.Id)
-            .Select(g => g.First())
-            .OrderBy(m => m.Timestamp);
+
+        var userIds = allMessages.SelectMany(m => new[] { m.SenderUserId, m.ReceiverUserId }).Distinct().ToList();
+        var userMap = await _context.Users
+            .Where(u => userIds.Contains(u.Id))
+            .ToDictionaryAsync(u => u.Id, u => u.Username);
+
+        return allMessages.Select(m => new MessageDto
+        {
+            Id = m.Id,
+            Sender = userMap.GetValueOrDefault(m.SenderUserId) ?? "Unknown",
+            Receiver = userMap.GetValueOrDefault(m.ReceiverUserId) ?? "Unknown",
+            Content = m.Content,
+            Timestamp = m.Timestamp,
+            IsRead = m.IsRead
+        }).OrderBy(m => m.Timestamp);
     }
 
     [HttpDelete]
