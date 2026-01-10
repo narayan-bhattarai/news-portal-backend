@@ -33,17 +33,18 @@ try
     builder.Services.AddSignalR();
 
     // Database Connection String - Prioritize Environment Variable (for Supabase/Production)
-    var connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
-                         ?? builder.Configuration.GetConnectionString("DefaultConnection");
+    var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+                            ?? Environment.GetEnvironmentVariable("DATABASE_URL");
 
     builder.Services.AddDbContext<NewsContext>(options =>
         options.UseNpgsql(connectionString, npgsqlOptions =>
         {
             npgsqlOptions.EnableRetryOnFailure(
-                maxRetryCount: 10,
-                maxRetryDelay: TimeSpan.FromSeconds(30),
-                errorCodesToAdd: null);
-            npgsqlOptions.CommandTimeout(120); // Increase to 120s to match logs (122s delay)
+            maxRetryCount: 3,
+            maxRetryDelay: TimeSpan.FromSeconds(5),
+            errorCodesToAdd: null
+            );
+            npgsqlOptions.CommandTimeout(120); 
         }));
 
     // Add Identity (BEFORE Authentication)
@@ -149,16 +150,16 @@ try
     // Force ViewCount column check (Optional safety)
     using (var scope = app.Services.CreateScope())
     {
-         var context = scope.ServiceProvider.GetRequiredService<NewsContext>();
-         try 
-         {
-             // Ensure DB is created (Still useful for first run)
-             context.Database.EnsureCreated();
-         }
-         catch(Exception ex) 
-         {
-             Log.Error(ex, "Error ensuring database created.");
-         }
+        var context = scope.ServiceProvider.GetRequiredService<NewsContext>();
+        try
+        {
+            // Ensure DB is created (Still useful for first run)
+            context.Database.EnsureCreated();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Error ensuring database created.");
+        }
     }
 
     app.Run();
