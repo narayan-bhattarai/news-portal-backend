@@ -13,7 +13,10 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 COPY --from=build /app/out ./
 
-# No port env vars here – let Program.cs + Render handle it
+# Render Docker services require an explicit port
 EXPOSE 8080
+
+# Force Kestrel to listen on 8080
+ENV ASPNETCORE_URLS=http://0.0.0.0:8080
 
 ENTRYPOINT ["dotnet", "NewsPortal.API.dll"]
