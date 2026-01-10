@@ -38,7 +38,17 @@ public class AuthController : ControllerBase
             return Unauthorized();
 
         // Use Identity's password check (handles hashing automatically)
-        var isPasswordValid = await _userManager.CheckPasswordAsync(user, request.Password);
+        bool isPasswordValid = false;
+        try
+        {
+            isPasswordValid = await _userManager.CheckPasswordAsync(user, request.Password);
+        }
+        catch (FormatException) 
+        {
+            // Stored hash is likely plain text (not Base64), so CheckPasswordAsync crashed.
+            // We ignore this error and fall through to the plain-text check below.
+            isPasswordValid = false;
+        }
 
         // Fallback: Check if password is stored as Plain Text (Migration Logic)
         if (!isPasswordValid && user.PasswordHash == request.Password)
