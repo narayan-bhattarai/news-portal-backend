@@ -2,11 +2,9 @@
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /app
 
-# Copy project file and restore dependencies
 COPY *.csproj ./
 RUN dotnet restore
 
-# Copy everything else and publish
 COPY . ./
 RUN dotnet publish -c Release -o out
 
@@ -15,8 +13,10 @@ FROM mcr.microsoft.com/dotnet/aspnet:8.0
 WORKDIR /app
 COPY --from=build /app/out ./
 
-# Render uses PORT env variable
-ENV ASPNETCORE_URLS=http://+:$PORT
-
+# Clean setup for Render
+# Program.cs handles reading the 'PORT' env var dynamically.
+# We set a default here just in case.
+ENV ASPNETCORE_HTTP_PORTS=8080
 EXPOSE 8080
+
 ENTRYPOINT ["dotnet", "NewsPortal.API.dll"]
