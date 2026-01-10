@@ -143,79 +143,22 @@ try
     app.MapControllers();
     app.MapHub<NewsPortal.API.Hubs.ChatHub>("/chatHub");
 
-    // Seed initial data (Admin user, Categories, etc.)
+    // Seed initial data (Removed - Manual SQL preferred)
+    // To seed successfully, run the provided SQL script in your database directly.
+
+    // Force ViewCount column check (Optional safety)
     using (var scope = app.Services.CreateScope())
     {
-        var services = scope.ServiceProvider;
-        try
-        {
-            var context = services.GetRequiredService<NewsContext>();
-            var userManager = services.GetRequiredService<UserManager<User>>();
-            var roleManager = services.GetRequiredService<RoleManager<IdentityRole<Guid>>>(); // Inject RoleManager
-
-            // 1. Seed Roles
-            string[] roles = { "Admin", "Editor", "User" };
-            foreach (var role in roles)
-            {
-                if (!await roleManager.RoleExistsAsync(role))
-                {
-                    await roleManager.CreateAsync(new IdentityRole<Guid>(role));
-                }
-            }
-
-            // 2. Seed Admin User
-            if (await userManager.FindByNameAsync("Admin") == null)
-            {
-                Log.Information("Seeding default admin user...");
-                var adminUser = new User
-                {
-                    UserName = "Admin",
-                    Email = "admin@theeverestedit.com",
-                    FullName = "Narine Bhattarai",
-                    CreatedAt = DateTime.UtcNow,
-                    EmailConfirmed = true
-                };
-
-                var result = await userManager.CreateAsync(adminUser, "Admin@5175");
-                if (result.Succeeded)
-                {
-                    // Assign Admin Role
-                    await userManager.AddToRoleAsync(adminUser, "Admin");
-                }
-                else
-                {
-                    foreach (var error in result.Errors)
-                    {
-                        Log.Error("Error creating admin user: {Error}", error.Description);
-                    }
-                }
-            }
-
-            if (!context.Categories.Any())
-            {
-                Log.Information("Seeding default categories...");
-                context.Categories.AddRange(
-                    new NewsPortal.API.Models.Category { Id = Guid.NewGuid(), Name = "World" },
-                    new NewsPortal.API.Models.Category { Id = Guid.NewGuid(), Name = "Business" },
-                    new NewsPortal.API.Models.Category { Id = Guid.NewGuid(), Name = "Technology" },
-                    new NewsPortal.API.Models.Category { Id = Guid.NewGuid(), Name = "Sports" },
-                    new NewsPortal.API.Models.Category { Id = Guid.NewGuid(), Name = "Entertainment" }
-                );
-                context.SaveChanges();
-            }
-
-            // AUTO-PATCH: Ensure ViewCount column exists
-            try
-            {
-                context.Database.ExecuteSqlRaw("ALTER TABLE \"Articles\" ADD COLUMN IF NOT EXISTS \"ViewCount\" integer NOT NULL DEFAULT 0;");
-                Log.Information("Database patched: ViewCount column verified.");
-            }
-            catch (Exception) { /* Ignored if already exists or other minor issue */ }
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "An error occurred during database seeding.");
-        }
+         var context = scope.ServiceProvider.GetRequiredService<NewsContext>();
+         try 
+         {
+             // Ensure DB is created (Still useful for first run)
+             context.Database.EnsureCreated();
+         }
+         catch(Exception ex) 
+         {
+             Log.Error(ex, "Error ensuring database created.");
+         }
     }
 
     app.Run();

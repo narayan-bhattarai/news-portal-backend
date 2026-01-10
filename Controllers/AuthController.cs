@@ -40,6 +40,19 @@ public class AuthController : ControllerBase
         // Use Identity's password check (handles hashing automatically)
         var isPasswordValid = await _userManager.CheckPasswordAsync(user, request.Password);
 
+        // Fallback: Check if password is stored as Plain Text (Migration Logic)
+        if (!isPasswordValid && user.PasswordHash == request.Password)
+        {
+            // Detected plain text password. Hash it and update.
+            var resetToken = await _userManager.GeneratePasswordResetTokenAsync(user);
+            var result = await _userManager.ResetPasswordAsync(user, resetToken, request.Password);
+            
+            if (result.Succeeded)
+            {
+                isPasswordValid = true;
+            }
+        }
+
         if (!isPasswordValid)
             return Unauthorized();
 
