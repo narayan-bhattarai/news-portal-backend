@@ -18,8 +18,8 @@ Log.Logger = new LoggerConfiguration()
 try
 {
     var builder = WebApplication.CreateBuilder(args);
-var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
-builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
+    var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
+    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
     // Use Serilog
     builder.Host.UseSerilog((ctx, lc) => lc
         .ReadFrom.Configuration(ctx.Configuration));
@@ -31,11 +31,12 @@ builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
     builder.Services.AddSignalR();
 
     // Database Connection String - Prioritize Environment Variable (for Supabase/Production)
-    var connectionString = Environment.GetEnvironmentVariable("DATABASE_URL") 
+    var connectionString = Environment.GetEnvironmentVariable("DATABASE_URL")
                          ?? builder.Configuration.GetConnectionString("DefaultConnection");
 
     builder.Services.AddDbContext<NewsContext>(options =>
-        options.UseNpgsql(connectionString, npgsqlOptions => {
+        options.UseNpgsql(connectionString, npgsqlOptions =>
+        {
             npgsqlOptions.EnableRetryOnFailure(
                 maxRetryCount: 10,
                 maxRetryDelay: TimeSpan.FromSeconds(30),
@@ -58,11 +59,11 @@ builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
     .AddDefaultTokenProviders();
 
     // JWT Authentication - Prioritize Environment Variable
-    var jwtKey = Environment.GetEnvironmentVariable("JWT_SECRET") 
+    var jwtKey = Environment.GetEnvironmentVariable("JWT_SECRET")
                  ?? "SuperSecretKeyForNewsPortalDemo123!"; // Default for local dev only
-    
+
     var key = Encoding.ASCII.GetBytes(jwtKey);
-    
+
     // Config Auth to use JWT by default (override Identity cookies)
     builder.Services.AddAuthentication(options =>
     {
@@ -176,8 +177,8 @@ builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
                 var result = await userManager.CreateAsync(adminUser, "Admin@5175");
                 if (result.Succeeded)
                 {
-                     // Assign Admin Role
-                     await userManager.AddToRoleAsync(adminUser, "Admin");
+                    // Assign Admin Role
+                    await userManager.AddToRoleAsync(adminUser, "Admin");
                 }
                 else
                 {
@@ -202,7 +203,7 @@ builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
             }
 
             // AUTO-PATCH: Ensure ViewCount column exists
-            try 
+            try
             {
                 context.Database.ExecuteSqlRaw("ALTER TABLE \"Articles\" ADD COLUMN IF NOT EXISTS \"ViewCount\" integer NOT NULL DEFAULT 0;");
                 Log.Information("Database patched: ViewCount column verified.");
