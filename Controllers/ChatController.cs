@@ -19,7 +19,7 @@ public class ChatController : ControllerBase
 
     public class MessageDto
     {
-        public int Id { get; set; }
+        public Guid Id { get; set; }
         public string Sender { get; set; } = string.Empty;
         public string Receiver { get; set; } = string.Empty;
         public string Content { get; set; } = string.Empty;
@@ -36,11 +36,11 @@ public class ChatController : ControllerBase
             var username = User.Identity?.Name;
             if (string.IsNullOrEmpty(username)) return Ok(new List<MessageDto>());
 
-            var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Username == username);
+            var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.UserName == username);
             if (user == null) return Ok(new List<MessageDto>());
 
             var currentUserId = user.Id;
-            var deleteToken = "," + currentUserId + ",";
+            var deleteToken = "," + currentUserId.ToString() + ",";
 
             // Use string.Concat or check for null to avoid 500 in Postgres if DeletedFor is null
             var allMessages = await _context.ChatMessages.AsNoTracking()
@@ -57,7 +57,7 @@ public class ChatController : ControllerBase
             var userIds = filteredMessages.SelectMany(m => new[] { m.SenderUserId, m.ReceiverUserId }).Distinct().ToList();
             var userMap = await _context.Users.AsNoTracking()
                 .Where(u => userIds.Contains(u.Id))
-                .ToDictionaryAsync(u => u.Id, u => u.Username);
+                .ToDictionaryAsync(u => u.Id, u => u.UserName);
 
             var result = filteredMessages.Select(m => new MessageDto
             {
@@ -99,8 +99,8 @@ public class ChatController : ControllerBase
         var currentUsername = User.Identity?.Name;
         if (string.IsNullOrEmpty(currentUsername)) return Unauthorized();
 
-        var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == currentUsername);
-        var targetUser = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+        var currentUser = await _context.Users.FirstOrDefaultAsync(u => u.UserName == currentUsername);
+        var targetUser = await _context.Users.FirstOrDefaultAsync(u => u.UserName == username);
 
         if (currentUser == null || targetUser == null) return NotFound("User not found");
 
@@ -121,23 +121,23 @@ public class ChatController : ControllerBase
         {
             if (msg.DeletedFor == null) msg.DeletedFor = "";
 
-            var deleteToken = "," + currentId + ",";
+            var deleteToken = "," + currentId.ToString() + ",";
 
             if (!msg.DeletedFor.Contains(deleteToken))
             {
                 if (string.IsNullOrEmpty(msg.DeletedFor))
                 {
-                    msg.DeletedFor = "," + currentId + ",";
+                    msg.DeletedFor = "," + currentId.ToString() + ",";
                 }
                 else
                 {
-                    msg.DeletedFor += currentId + ",";
+                    msg.DeletedFor += currentId.ToString() + ",";
                 }
             }
 
             // Check if BOTH Sender and Receiver have deleted it
-            var senderToken = "," + msg.SenderUserId + ",";
-            var receiverToken = "," + msg.ReceiverUserId + ",";
+            var senderToken = "," + msg.SenderUserId.ToString() + ",";
+            var receiverToken = "," + msg.ReceiverUserId.ToString() + ",";
             
             if (msg.DeletedFor.Contains(senderToken) && msg.DeletedFor.Contains(receiverToken))
             {

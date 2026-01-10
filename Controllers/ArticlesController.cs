@@ -17,7 +17,7 @@ public class ArticlesController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> Get([FromQuery] string? search, [FromQuery] string? category)
+    public async Task<IActionResult> Get([FromQuery] string? search, [FromQuery] string? category, [FromQuery] int page = 1, [FromQuery] int pageSize = 10)
     {
         try
         {
@@ -35,8 +35,13 @@ public class ArticlesController : ControllerBase
                 query = query.Where(a => EF.Functions.ILike(a.Category, category));
             }
 
-            var results = await query.OrderByDescending(a => a.Id).ToListAsync();
-            return Ok(results);
+            var totalCount = await query.CountAsync();
+            var results = await query.OrderByDescending(a => a.PublishedAt)
+                                     .Skip((page - 1) * pageSize)
+                                     .Take(pageSize)
+                                     .ToListAsync();
+
+            return Ok(new { Items = results, TotalCount = totalCount, Page = page, PageSize = pageSize });
         }
         catch (Exception ex)
         {
@@ -54,11 +59,18 @@ public class ArticlesController : ControllerBase
     [HttpGet("editors-picks")]
     public async Task<IEnumerable<Article>> GetEditorsPicks()
     {
-        return await _context.Articles.AsNoTracking().Where(a => a.IsTrending).Take(2).ToListAsync();
+        // Now using the dedicated flag
+        return await _context.Articles.AsNoTracking().Where(a => a.IsEditorsPick).Take(4).ToListAsync();
+    }
+
+    [HttpGet("featured")]
+    public async Task<Article?> GetFeatured()
+    {
+        return await _context.Articles.AsNoTracking().FirstOrDefaultAsync(a => a.IsFeatured);
     }
 
     [HttpGet("{id}")]
-    public async Task<IActionResult> GetArticle(int id)
+    public async Task<IActionResult> GetArticle(Guid id)
     {
         var article = await _context.Articles.FindAsync(id);
 
@@ -67,6 +79,10 @@ public class ArticlesController : ControllerBase
             return NotFound();
         }
 
+        // Increment View Count
+        article.ViewCount++;
+        await _context.SaveChangesAsync();
+        
         return Ok(article);
     }
 
@@ -84,7 +100,7 @@ public class ArticlesController : ControllerBase
 
     [HttpPut("{id}")]
     [Microsoft.AspNetCore.Authorization.Authorize]
-    public async Task<IActionResult> Update(int id, [FromBody] Article article)
+    public async Task<IActionResult> Update(Guid id, [FromBody] Article article)
     {
         if (id != article.Id)
         {
@@ -105,6 +121,8 @@ public class ArticlesController : ControllerBase
         existingArticle.Excerpt = article.Excerpt;
         existingArticle.Content = article.Content; // Update content
         existingArticle.IsTrending = article.IsTrending;
+        existingArticle.IsEditorsPick = article.IsEditorsPick;
+        existingArticle.IsFeatured = article.IsFeatured;
         
         // Don't update Id
 
@@ -129,7 +147,7 @@ public class ArticlesController : ControllerBase
 
     [HttpDelete("{id}")]
     [Microsoft.AspNetCore.Authorization.Authorize]
-    public async Task<IActionResult> Delete(int id)
+    public async Task<IActionResult> Delete(Guid id)
     {
         var article = await _context.Articles.FindAsync(id);
         if (article == null) return NotFound();

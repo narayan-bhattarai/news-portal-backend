@@ -23,7 +23,20 @@ public class CategoriesController : ControllerBase
         try
         {
             var categories = await _context.Categories.AsNoTracking().ToListAsync();
-            return Ok(categories);
+            
+            // Get article counts for each category
+            var categoryCounts = await _context.Articles
+                .GroupBy(a => a.Category)
+                .Select(g => new { Category = g.Key, Count = g.Count() })
+                .ToListAsync();
+
+            var result = categories.Select(c => new {
+                c.Id,
+                c.Name,
+                ArticleCount = categoryCounts.FirstOrDefault(cc => cc.Category == c.Name)?.Count ?? 0
+            }).OrderByDescending(c => c.ArticleCount).ToList();
+
+            return Ok(result);
         }
         catch (Exception ex)
         {
@@ -63,7 +76,7 @@ public class CategoriesController : ControllerBase
 
     [HttpPut("{id}")]
     [Authorize]
-    public async Task<IActionResult> Update(int id, [FromBody] Category category)
+    public async Task<IActionResult> Update(Guid id, [FromBody] Category category)
     {
         var existing = await _context.Categories.FindAsync(id);
         if (existing == null) return NotFound();
@@ -75,7 +88,7 @@ public class CategoriesController : ControllerBase
 
     [HttpDelete("{id}")]
     [Authorize]
-    public async Task<IActionResult> Delete(int id)
+    public async Task<IActionResult> Delete(Guid id)
     {
         var category = await _context.Categories.FindAsync(id);
         if (category == null) return NotFound();

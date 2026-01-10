@@ -4,7 +4,7 @@ namespace NewsPortal.API.Models;
 
 public class Category
 {
-    public int Id { get; set; }
+    public Guid Id { get; set; } = Guid.NewGuid();
     [Required]
     public string Name { get; set; } = string.Empty;
 }
@@ -20,7 +20,7 @@ public class PageContent
 
 public class ContactSubmission
 {
-    public int Id { get; set; }
+    public Guid Id { get; set; } = Guid.NewGuid();
     public string Name { get; set; } = string.Empty;
     public string Email { get; set; } = string.Empty;
     public string Phone { get; set; } = string.Empty;

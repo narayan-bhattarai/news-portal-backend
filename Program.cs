@@ -1,5 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using NewsPortal.API.Data;
+using NewsPortal.API.Models;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 using System.Text;
@@ -40,12 +42,27 @@ try
             npgsqlOptions.CommandTimeout(120); // Increase to 120s to match logs (122s delay)
         }));
 
+    // Add Identity (BEFORE Authentication)
+    builder.Services.AddIdentity<User, IdentityRole<Guid>>(options =>
+    {
+        options.User.RequireUniqueEmail = false; // allow null emails as per current model
+        // Password settings
+        options.Password.RequireDigit = false;
+        options.Password.RequireLowercase = false;
+        options.Password.RequireNonAlphanumeric = false;
+        options.Password.RequireUppercase = false;
+        options.Password.RequiredLength = 6;
+    })
+    .AddEntityFrameworkStores<NewsContext>()
+    .AddDefaultTokenProviders();
+
     // JWT Authentication - Prioritize Environment Variable
     var jwtKey = Environment.GetEnvironmentVariable("JWT_SECRET") 
                  ?? "SuperSecretKeyForNewsPortalDemo123!"; // Default for local dev only
     
     var key = Encoding.ASCII.GetBytes(jwtKey);
     
+    // Config Auth to use JWT by default (override Identity cookies)
     builder.Services.AddAuthentication(options =>
     {
         options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -59,7 +76,7 @@ try
         {
             ValidateIssuerSigningKey = true,
             IssuerSigningKey = new SymmetricSecurityKey(key),
-            ValidateIssuer = false,
+            ValidateIssuer = false, // Identity doesn't check issuer by default unless configured
             ValidateAudience = false,
             ClockSkew = TimeSpan.Zero,
             NameClaimType = ClaimTypes.Name,
@@ -122,9 +139,80 @@ try
     app.MapControllers();
     app.MapHub<NewsPortal.API.Hubs.ChatHub>("/chatHub");
 
-    // Database initialization (stateless on startup)
-    // Note: Migrations should be handled via 'dotnet ef database update' locally 
-    // or SQL exports for Supabase. No EnsureCreated() or schema mutations here.
+    // Seed initial data (Admin user, Categories, etc.)
+    using (var scope = app.Services.CreateScope())
+    {
+        var services = scope.ServiceProvider;
+        try
+        {
+            var context = services.GetRequiredService<NewsContext>();
+            var userManager = services.GetRequiredService<UserManager<User>>();
+            var roleManager = services.GetRequiredService<RoleManager<IdentityRole<Guid>>>(); // Inject RoleManager
+
+            // 1. Seed Roles
+            string[] roles = { "Admin", "Editor", "User" };
+            foreach (var role in roles)
+            {
+                if (!await roleManager.RoleExistsAsync(role))
+                {
+                    await roleManager.CreateAsync(new IdentityRole<Guid>(role));
+                }
+            }
+
+            // 2. Seed Admin User
+            if (await userManager.FindByNameAsync("Admin") == null)
+            {
+                Log.Information("Seeding default admin user...");
+                var adminUser = new User
+                {
+                    UserName = "Admin",
+                    Email = "admin@theeverestedit.com",
+                    FullName = "Narine Bhattarai",
+                    CreatedAt = DateTime.UtcNow,
+                    EmailConfirmed = true
+                };
+
+                var result = await userManager.CreateAsync(adminUser, "Admin@5175");
+                if (result.Succeeded)
+                {
+                     // Assign Admin Role
+                     await userManager.AddToRoleAsync(adminUser, "Admin");
+                }
+                else
+                {
+                    foreach (var error in result.Errors)
+                    {
+                        Log.Error("Error creating admin user: {Error}", error.Description);
+                    }
+                }
+            }
+
+            if (!context.Categories.Any())
+            {
+                Log.Information("Seeding default categories...");
+                context.Categories.AddRange(
+                    new NewsPortal.API.Models.Category { Id = Guid.NewGuid(), Name = "World" },
+                    new NewsPortal.API.Models.Category { Id = Guid.NewGuid(), Name = "Business" },
+                    new NewsPortal.API.Models.Category { Id = Guid.NewGuid(), Name = "Technology" },
+                    new NewsPortal.API.Models.Category { Id = Guid.NewGuid(), Name = "Sports" },
+                    new NewsPortal.API.Models.Category { Id = Guid.NewGuid(), Name = "Entertainment" }
+                );
+                context.SaveChanges();
+            }
+
+            // AUTO-PATCH: Ensure ViewCount column exists
+            try 
+            {
+                context.Database.ExecuteSqlRaw("ALTER TABLE \"Articles\" ADD COLUMN IF NOT EXISTS \"ViewCount\" integer NOT NULL DEFAULT 0;");
+                Log.Information("Database patched: ViewCount column verified.");
+            }
+            catch (Exception) { /* Ignored if already exists or other minor issue */ }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "An error occurred during database seeding.");
+        }
+    }
 
     app.Run();
 }

@@ -41,8 +41,8 @@ public class ChatHub : Hub
         }
 
         // Case-insensitive lookups for security and reliability
-        var sender = await _context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == senderUsername.ToLower());
-        var receiver = await _context.Users.FirstOrDefaultAsync(u => u.Username.ToLower() == receiverUsername.ToLower());
+        var sender = await _context.Users.FirstOrDefaultAsync(u => u.UserName.ToLower() == senderUsername.ToLower());
+        var receiver = await _context.Users.FirstOrDefaultAsync(u => u.UserName.ToLower() == receiverUsername.ToLower());
 
         if (sender == null || receiver == null)
         {
@@ -77,8 +77,8 @@ public class ChatHub : Hub
         var readerUsername = Context.User?.Identity?.Name;
         if (string.IsNullOrEmpty(readerUsername)) return;
 
-        var reader = await _context.Users.FirstOrDefaultAsync(u => u.Username == readerUsername);
-        var sender = await _context.Users.FirstOrDefaultAsync(u => u.Username == senderOfMessagesUsername);
+        var reader = await _context.Users.FirstOrDefaultAsync(u => u.UserName == readerUsername);
+        var sender = await _context.Users.FirstOrDefaultAsync(u => u.UserName == senderOfMessagesUsername);
 
         if (reader == null || sender == null) return;
 

@@ -52,7 +52,7 @@ public class ContactController : ControllerBase
 
     [HttpDelete("{id}")]
     [Authorize]
-    public async Task<IActionResult> DeleteMessage(int id)
+    public async Task<IActionResult> DeleteMessage(Guid id)
     {
         var msg = await _context.ContactSubmissions.FindAsync(id);
         if (msg == null) return NotFound();

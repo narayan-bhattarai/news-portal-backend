@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using NewsPortal.API.Data;
 using NewsPortal.API.Models;
+using Microsoft.AspNetCore.Identity;
 
 namespace NewsPortal.API.Controllers;
 
@@ -10,37 +11,49 @@ namespace NewsPortal.API.Controllers;
 [ApiController]
 public class UsersController : ControllerBase
 {
-    private readonly NewsContext _context;
+    private readonly UserManager<User> _userManager;
 
-    public UsersController(NewsContext context)
+    public UsersController(UserManager<User> userManager)
     {
-        _context = context;
+        _userManager = userManager;
     }
 
     public class UserDto
     {
-        public int Id { get; set; }
+        public Guid Id { get; set; }
         public string Username { get; set; } = string.Empty;
         public string Role { get; set; } = string.Empty;
         public string? Email { get; set; }
         public string? FullName { get; set; }
         public DateTime CreatedAt { get; set; }
         public string PublicKey { get; set; } = string.Empty;
+        public string? ProfileImage { get; set; }
     }
 
     [HttpGet]
     [Authorize]
     public async Task<ActionResult<IEnumerable<UserDto>>> GetUsers()
     {
-        return await _context.Users.AsNoTracking().Select(u => new UserDto { 
-            Id = u.Id, 
-            Username = u.Username, 
-            Role = u.Role,
-            Email = u.Email,
-            FullName = u.FullName,
-            CreatedAt = u.CreatedAt,
-            PublicKey = u.PublicKey
-        }).ToListAsync();
+        var users = await _userManager.Users.ToListAsync();
+        var userDtos = new List<UserDto>();
+
+        foreach (var user in users)
+        {
+            var roles = await _userManager.GetRolesAsync(user);
+            userDtos.Add(new UserDto
+            {
+                Id = user.Id,
+                Username = user.UserName ?? "",
+                Role = roles.FirstOrDefault() ?? "User", // Best effort single role
+                Email = user.Email,
+                FullName = user.FullName,
+                CreatedAt = user.CreatedAt,
+                PublicKey = user.PublicKey,
+                ProfileImage = user.ProfileImage
+            });
+        }
+
+        return Ok(userDtos);
     }
 
     public class PublicKeyRequest
@@ -55,12 +68,14 @@ public class UsersController : ControllerBase
         var username = User.Identity?.Name;
         if (string.IsNullOrEmpty(username)) return Unauthorized();
 
-        var user = await _context.Users.FirstOrDefaultAsync(u => u.Username == username);
+        var user = await _userManager.FindByNameAsync(username);
         if (user == null) return NotFound();
 
         user.PublicKey = request.PublicKey;
-        await _context.SaveChangesAsync();
-        return Ok();
+        var result = await _userManager.UpdateAsync(user);
+        
+        if (result.Succeeded) return Ok();
+        return BadRequest(result.Errors);
     }
 
     public class CreateUserDto
@@ -70,48 +85,61 @@ public class UsersController : ControllerBase
         public string Role { get; set; } = "Editor";
         public string Email { get; set; } = string.Empty;
         public string FullName { get; set; } = string.Empty;
+        public string? ProfileImage { get; set; }
     }
 
     [HttpPost]
     [Authorize]
-    public async Task<ActionResult<User>> CreateUser(CreateUserDto request)
+    public async Task<ActionResult<UserDto>> CreateUser(CreateUserDto request)
     {
-        if (await _context.Users.AnyAsync(u => u.Username == request.Username))
+        if (await _userManager.FindByNameAsync(request.Username) != null)
         {
             return BadRequest("Username already exists");
         }
 
         var user = new User
         {
-            Username = request.Username,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password), // Use Hash!
-            Role = request.Role,
+            UserName = request.Username,
             Email = request.Email,
             FullName = request.FullName,
-            CreatedAt = DateTime.UtcNow
+            ProfileImage = request.ProfileImage,
+            CreatedAt = DateTime.UtcNow,
+            EmailConfirmed = true // Auto-confirm for admin created users
         };
 
-        _context.Users.Add(user);
-        await _context.SaveChangesAsync();
+        // Create user with password (Identity handles hashing)
+        var result = await _userManager.CreateAsync(user, request.Password);
 
-        return CreatedAtAction(nameof(GetUsers), new { id = user.Id }, user);
+        if (!result.Succeeded)
+        {
+            return BadRequest(result.Errors);
+        }
+
+        // Assign Role
+        if (!string.IsNullOrEmpty(request.Role))
+        {
+            await _userManager.AddToRoleAsync(user, request.Role);
+        }
+
+        return CreatedAtAction(nameof(GetUsers), new { id = user.Id }, new UserDto { Id = user.Id, Username = user.UserName, Role = request.Role });
     }
 
     [HttpDelete("{id}")]
     [Authorize]
-    public async Task<IActionResult> DeleteUser(int id)
+    public async Task<IActionResult> DeleteUser(Guid id)
     {
-        var user = await _context.Users.FindAsync(id);
+        var user = await _userManager.FindByIdAsync(id.ToString());
         if (user == null) return NotFound();
 
-        // Prevent deleting the last admin or "self" if strict, but let's just create basic
-        if (user.Username.ToLower() == "admin") return BadRequest("Cannot delete root admin");
+        // Prevent deleting root admin
+        if (user.UserName?.ToLower() == "admin") return BadRequest("Cannot delete root admin");
 
-        _context.Users.Remove(user);
-        await _context.SaveChangesAsync();
-
-        return NoContent();
+        var result = await _userManager.DeleteAsync(user);
+        if (result.Succeeded) return NoContent();
+        
+        return BadRequest(result.Errors);
     }
+
     public class UpdateUserRequest
     {
         public string Username { get; set; } = string.Empty;
@@ -119,32 +147,61 @@ public class UsersController : ControllerBase
         public string? NewPassword { get; set; }
         public string? Email { get; set; }
         public string? FullName { get; set; }
+        public string? ProfileImage { get; set; }
     }
 
     [HttpPut("{id}")]
     [Authorize]
-    public async Task<IActionResult> UpdateUser(int id, [FromBody] UpdateUserRequest request)
+    public async Task<IActionResult> UpdateUser(Guid id, [FromBody] UpdateUserRequest request)
     {
-        var user = await _context.Users.FindAsync(id);
+        var user = await _userManager.FindByIdAsync(id.ToString());
         if (user == null) return NotFound();
 
-        // Check if username is taken by ANOTHER user
-        if (await _context.Users.AnyAsync(u => u.Username == request.Username && u.Id != id))
+        // Protect Root Admin from critical changes
+        if (user.UserName?.ToLower() == "admin")
         {
-            return BadRequest("Username already taken");
+             // Prevent Username Change
+             if (request.Username?.ToLower() != "admin")
+             {
+                 return BadRequest("Cannot change the username of the root admin user.");
+             }
+             
+             // Prevent Role Change (Check logic below, better to just enforce it stays Admin here or skip role update)
+             // We will handle role logic below to ensure it's not removed.
         }
 
-        user.Username = request.Username;
-        user.Role = request.Role;
+        user.UserName = request.Username;
         user.Email = request.Email;
         user.FullName = request.FullName;
+        user.ProfileImage = request.ProfileImage;
 
-        if (!string.IsNullOrEmpty(request.NewPassword))
+        // Update basic info
+        var updateResult = await _userManager.UpdateAsync(user);
+        if (!updateResult.Succeeded) return BadRequest(updateResult.Errors);
+
+        // Update Role
+        var currentRoles = await _userManager.GetRolesAsync(user);
+        
+        // Block Admin Role Change
+        if (user.UserName?.ToLower() == "admin" && request.Role != "Admin") 
         {
-            user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.NewPassword);
+             return BadRequest("Cannot change the role of the root admin user.");
         }
 
-        await _context.SaveChangesAsync();
-        return Ok(new { id = user.Id, username = user.Username, role = user.Role, email = user.Email, fullName = user.FullName });
+        if (!currentRoles.Contains(request.Role))
+        {
+            await _userManager.RemoveFromRolesAsync(user, currentRoles);
+            await _userManager.AddToRoleAsync(user, request.Role);
+        }
+
+        // Update Password
+        if (!string.IsNullOrEmpty(request.NewPassword))
+        {
+            var token = await _userManager.GeneratePasswordResetTokenAsync(user);
+            var pwdResult = await _userManager.ResetPasswordAsync(user, token, request.NewPassword);
+            if (!pwdResult.Succeeded) return BadRequest(pwdResult.Errors);
+        }
+
+        return Ok(new { id = user.Id, username = user.UserName, role = request.Role });
     }
 }

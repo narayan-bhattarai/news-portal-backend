@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
-using NewsPortal.API.Data;
+using Microsoft.AspNetCore.Identity;
 using NewsPortal.API.Models;
 using System.Security.Claims;
 using System.IdentityModel.Tokens.Jwt;
@@ -14,105 +14,45 @@ namespace NewsPortal.API.Controllers;
 public class AuthController : ControllerBase
 {
     private const string SecretKey = "SuperSecretKeyForNewsPortalDemo123!";
-    private readonly NewsContext _context;
+    private readonly UserManager<User> _userManager;
+    private readonly SignInManager<User> _signInManager;
 
-    public AuthController(NewsContext context)
+    public AuthController(UserManager<User> userManager, SignInManager<User> signInManager)
     {
-        _context = context;
+        _userManager = userManager;
+        _signInManager = signInManager;
     }
 
     [HttpPost("login")]
-    public IActionResult Login([FromBody] LoginRequest request)
+    public async Task<IActionResult> Login([FromBody] LoginRequest request)
     {
-        // Fetch user by username ONLY first
-        var user = _context.Users.FirstOrDefault(u => u.Username == request.Username);
-
-        if (user != null)
+        if (string.IsNullOrWhiteSpace(request.Username) || 
+            string.IsNullOrWhiteSpace(request.Password))
         {
-            // Verify Password using BCrypt
-            bool validPassword = false;
-            try
-            {
-                validPassword = BCrypt.Net.BCrypt.Verify(request.Password, user.PasswordHash);
-            }
-            catch 
-            {
-                // Fallback for legacy plain-text passwords (temporary migration support)
-                if (user.PasswordHash == request.Password)
-                {
-                    // Auto-migrate to hash?
-                    user.PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password);
-                    _context.SaveChanges();
-                    validPassword = true;
-                }
-            }
-
-            if (validPassword)
-            {
-                var token = GenerateJwtToken(user);
-                return Ok(new { token, role = user.Role });
-            }
+            return Unauthorized();
         }
 
-        return Unauthorized();
-    }
+        var user = await _userManager.FindByNameAsync(request.Username);
 
-    [HttpPost("register")]
-    public IActionResult Register([FromBody] RegisterRequest request)
-    {
-        if (_context.Users.Any(u => u.Username == request.Username))
+        if (user == null)
+            return Unauthorized();
+
+        // Use Identity's password check (handles hashing automatically)
+        var isPasswordValid = await _userManager.CheckPasswordAsync(user, request.Password);
+
+        if (!isPasswordValid)
+            return Unauthorized();
+
+        var roles = await _userManager.GetRolesAsync(user);
+        var role = roles.FirstOrDefault() ?? "User"; // Default to User if no role found
+
+        var token = GenerateJwtToken(user, role);
+
+        return Ok(new
         {
-            return BadRequest("Username already exists");
-        }
-
-        var newUser = new User
-        {
-            Username = request.Username,
-            PasswordHash = BCrypt.Net.BCrypt.HashPassword(request.Password), // Secure Hash
-            Role = request.Role,
-            CreatedAt = DateTime.UtcNow
-        };
-        
-        _context.Users.Add(newUser);
-        _context.SaveChanges();
-
-        return Ok(new { message = "User created successfully" });
-    }
-
-    [HttpGet("keys")]
-    [Authorize]
-    public IActionResult GetKeys()
-    {
-        var username = User.Identity?.Name;
-        if (string.IsNullOrEmpty(username)) return Unauthorized();
-
-        var user = _context.Users.FirstOrDefault(u => u.Username == username);
-        if (user == null) return NotFound("User not found");
-
-        return Ok(new { publicKey = user.PublicKey, privateKey = user.PrivateKey });
-    }
-
-    [HttpPost("keys")]
-    [Authorize]
-    public IActionResult UpdateKeys([FromBody] KeyUpdateRequest request)
-    {
-        var username = User.Identity?.Name;
-        if (string.IsNullOrEmpty(username)) return Unauthorized();
-
-        var user = _context.Users.FirstOrDefault(u => u.Username == username);
-        if (user == null) return NotFound("User not found");
-
-        user.PublicKey = request.PublicKey;
-        user.PrivateKey = request.PrivateKey;
-        _context.SaveChanges();
-
-        return Ok(new { message = "Keys updated successfully" });
-    }
-
-    public class KeyUpdateRequest
-    {
-        public string PublicKey { get; set; } = string.Empty;
-        public string PrivateKey { get; set; } = string.Empty;
+            token,
+            role
+        });
     }
 
     public class RegisterRequest
@@ -122,7 +62,38 @@ public class AuthController : ControllerBase
         public string Role { get; set; } = string.Empty;
     }
 
-    private string GenerateJwtToken(User user)
+    [HttpPost("register")]
+    public async Task<IActionResult> Register([FromBody] RegisterRequest request)
+    {
+        if (await _userManager.FindByNameAsync(request.Username) != null)
+        {
+            return BadRequest("Username already exists");
+        }
+
+        var newUser = new User
+        {
+            UserName = request.Username,
+            CreatedAt = DateTime.UtcNow,
+            Email = request.Username + "@example.com" 
+        };
+        
+        var result = await _userManager.CreateAsync(newUser, request.Password);
+
+        if (result.Succeeded)
+        {
+            if (!string.IsNullOrEmpty(request.Role))
+            {
+                await _userManager.AddToRoleAsync(newUser, request.Role);
+            }
+            return Ok(new { message = "User created successfully" });
+        }
+
+        return BadRequest(result.Errors);
+    }
+
+    // ... (Keys endpoints remain same)
+
+    private string GenerateJwtToken(User user, string role)
     {
         var tokenHandler = new JwtSecurityTokenHandler();
         var key = Encoding.ASCII.GetBytes(SecretKey);
@@ -130,8 +101,8 @@ public class AuthController : ControllerBase
         {
             Subject = new ClaimsIdentity(new[] 
             { 
-                new Claim(ClaimTypes.Name, user.Username),
-                new Claim(ClaimTypes.Role, user.Role),
+                new Claim(ClaimTypes.Name, user.UserName ?? ""), 
+                new Claim(ClaimTypes.Role, role),
                 new Claim("fullName", user.FullName ?? "")
             }),
             Expires = DateTime.UtcNow.AddDays(7),
@@ -140,4 +111,47 @@ public class AuthController : ControllerBase
         var token = tokenHandler.CreateToken(tokenDescriptor);
         return tokenHandler.WriteToken(token);
     }
+
+    [HttpGet("keys")]
+    [Authorize]
+    public async Task<IActionResult> GetKeys()
+    {
+        var username = User.Identity?.Name;
+        if (string.IsNullOrEmpty(username)) return Unauthorized();
+
+        var user = await _userManager.FindByNameAsync(username);
+        if (user == null) return NotFound("User not found");
+
+        return Ok(new { publicKey = user.PublicKey, privateKey = user.PrivateKey });
+    }
+
+    public class KeyUpdateRequest
+    {
+        public string PublicKey { get; set; } = string.Empty;
+        public string PrivateKey { get; set; } = string.Empty;
+    }
+
+    [HttpPost("keys")]
+    [Authorize]
+    public async Task<IActionResult> UpdateKeys([FromBody] KeyUpdateRequest request)
+    {
+        var username = User.Identity?.Name;
+        if (string.IsNullOrEmpty(username)) return Unauthorized();
+
+        var user = await _userManager.FindByNameAsync(username);
+        if (user == null) return NotFound("User not found");
+
+        user.PublicKey = request.PublicKey;
+        user.PrivateKey = request.PrivateKey;
+        
+        var result = await _userManager.UpdateAsync(user);
+
+        if (result.Succeeded)
+        {
+             return Ok(new { message = "Keys updated successfully" });
+        }
+        return BadRequest("Failed to update keys");
+    }
+
+
 }
