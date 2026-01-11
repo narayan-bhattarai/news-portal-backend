@@ -19,9 +19,6 @@ try
 {
     var builder = WebApplication.CreateBuilder(args);
 
-    var port = Environment.GetEnvironmentVariable("PORT") ?? "8080";
-    builder.WebHost.UseUrls($"http://0.0.0.0:{port}");
-
     // Use Serilog
     builder.Host.UseSerilog((ctx, lc) => lc
         .ReadFrom.Configuration(ctx.Configuration));
@@ -31,6 +28,7 @@ try
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen();
     builder.Services.AddSignalR();
+    builder.Services.AddHttpClient();
 
     // Database Connection String - Prioritize Environment Variable (for Supabase/Production)
     var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
@@ -144,21 +142,65 @@ try
     app.MapControllers();
     app.MapHub<NewsPortal.API.Hubs.ChatHub>("/chatHub");
 
-    // Seed initial data (Removed - Manual SQL preferred)
-    // To seed successfully, run the provided SQL script in your database directly.
-
-    // Force ViewCount column check (Optional safety)
+    // Seed initial data (Identity & Admin)
     using (var scope = app.Services.CreateScope())
     {
-        var context = scope.ServiceProvider.GetRequiredService<NewsContext>();
+        var services = scope.ServiceProvider;
+        var context = services.GetRequiredService<NewsContext>();
+        
         try
         {
-            // Ensure DB is created (Still useful for first run)
+            // Ensure DB is created
             context.Database.EnsureCreated();
+
+            // Identity Seeding
+            var userManager = services.GetRequiredService<UserManager<User>>();
+            var roleManager = services.GetRequiredService<RoleManager<IdentityRole<Guid>>>();
+
+            // 1. Seed Roles
+            if (!await roleManager.RoleExistsAsync("Admin"))
+            {
+                await roleManager.CreateAsync(new IdentityRole<Guid>("Admin"));
+            }
+            if (!await roleManager.RoleExistsAsync("Editor"))
+            {
+                await roleManager.CreateAsync(new IdentityRole<Guid>("Editor"));
+            }
+            if (!await roleManager.RoleExistsAsync("Viewer"))
+            {
+                await roleManager.CreateAsync(new IdentityRole<Guid>("Viewer"));
+            }
+
+            // 2. Seed 'Admin' User
+            var adminUser = await userManager.FindByNameAsync("Admin");
+            if (adminUser == null)
+            {
+                adminUser = new User
+                {
+                    UserName = "Admin",
+                    Email = "admin@newsportal.com",
+                    FullName = "System Administrator",
+                    EmailConfirmed = true,
+                    CreatedAt = DateTime.UtcNow
+                };
+                
+                // Password should be strong enough to pass Identity policies
+                var result = await userManager.CreateAsync(adminUser, "Admin@5175");
+
+                if (result.Succeeded)
+                {
+                    await userManager.AddToRoleAsync(adminUser, "Admin");
+                    Log.Information("Admin user seeded successfully.");
+                }
+                else
+                {
+                    Log.Error($"Failed to seed Admin user: {string.Join(", ", result.Errors.Select(e => e.Description))}");
+                }
+            }
         }
         catch (Exception ex)
         {
-            Log.Error(ex, "Error ensuring database created.");
+            Log.Error(ex, "Error ensuring database created or seeding data.");
         }
     }
 

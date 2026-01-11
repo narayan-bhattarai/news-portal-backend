@@ -44,12 +44,12 @@ public class UsersController : ControllerBase
             {
                 Id = user.Id,
                 Username = user.UserName ?? "",
-                Role = roles.FirstOrDefault() ?? "User", // Best effort single role
+                Role = roles.FirstOrDefault() ?? "Viewer",
                 Email = user.Email,
                 FullName = user.FullName,
                 CreatedAt = user.CreatedAt,
                 PublicKey = user.PublicKey,
-                ProfileImage = user.ProfileImage
+                ProfileImage = !string.IsNullOrEmpty(user.ProfileImage) ? user.ProfileImage : $"https://ui-avatars.com/api/?name={Uri.EscapeDataString(user.FullName ?? user.UserName ?? "User")}&background=0D8ABC&color=fff&size=128"
             });
         }
 
@@ -104,10 +104,10 @@ public class UsersController : ControllerBase
             FullName = request.FullName,
             ProfileImage = request.ProfileImage,
             CreatedAt = DateTime.UtcNow,
-            EmailConfirmed = true // Auto-confirm for admin created users
+            EmailConfirmed = true
         };
 
-        // Create user with password (Identity handles hashing)
+
         var result = await _userManager.CreateAsync(user, request.Password);
 
         if (!result.Succeeded)
@@ -115,7 +115,7 @@ public class UsersController : ControllerBase
             return BadRequest(result.Errors);
         }
 
-        // Assign Role
+
         if (!string.IsNullOrEmpty(request.Role))
         {
             await _userManager.AddToRoleAsync(user, request.Role);
@@ -131,7 +131,7 @@ public class UsersController : ControllerBase
         var user = await _userManager.FindByIdAsync(id.ToString());
         if (user == null) return NotFound();
 
-        // Prevent deleting root admin
+
         if (user.UserName?.ToLower() == "admin") return BadRequest("Cannot delete root admin");
 
         var result = await _userManager.DeleteAsync(user);
@@ -157,17 +157,16 @@ public class UsersController : ControllerBase
         var user = await _userManager.FindByIdAsync(id.ToString());
         if (user == null) return NotFound();
 
-        // Protect Root Admin from critical changes
+
         if (user.UserName?.ToLower() == "admin")
         {
-             // Prevent Username Change
+
              if (request.Username?.ToLower() != "admin")
              {
                  return BadRequest("Cannot change the username of the root admin user.");
              }
              
-             // Prevent Role Change (Check logic below, better to just enforce it stays Admin here or skip role update)
-             // We will handle role logic below to ensure it's not removed.
+
         }
 
         user.UserName = request.Username;
@@ -175,14 +174,14 @@ public class UsersController : ControllerBase
         user.FullName = request.FullName;
         user.ProfileImage = request.ProfileImage;
 
-        // Update basic info
+
         var updateResult = await _userManager.UpdateAsync(user);
         if (!updateResult.Succeeded) return BadRequest(updateResult.Errors);
 
-        // Update Role
+
         var currentRoles = await _userManager.GetRolesAsync(user);
         
-        // Block Admin Role Change
+
         if (user.UserName?.ToLower() == "admin" && request.Role != "Admin") 
         {
              return BadRequest("Cannot change the role of the root admin user.");
@@ -194,7 +193,7 @@ public class UsersController : ControllerBase
             await _userManager.AddToRoleAsync(user, request.Role);
         }
 
-        // Update Password
+
         if (!string.IsNullOrEmpty(request.NewPassword))
         {
             var token = await _userManager.GeneratePasswordResetTokenAsync(user);

@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.EntityFrameworkCore;
 using NewsPortal.API.Data;
 using NewsPortal.API.Models;
@@ -21,76 +22,185 @@ public class ArticlesController : ControllerBase
     {
         try
         {
-            var query = _context.Articles.AsNoTracking().AsQueryable();
+            var query = _context.Articles.AsNoTracking().Include(a => a.Category).AsQueryable();
 
             if (!string.IsNullOrWhiteSpace(search))
             {
                 query = query.Where(a => EF.Functions.ILike(a.Title, $"%{search}%") || 
                                          EF.Functions.ILike(a.Excerpt, $"%{search}%") ||
-                                         EF.Functions.ILike(a.Category, $"%{search}%"));
+                                         (a.Category != null && EF.Functions.ILike(a.Category.Name, $"%{search}%")));
             }
 
             if (!string.IsNullOrWhiteSpace(category))
             {
-                query = query.Where(a => EF.Functions.ILike(a.Category, category));
+                query = query.Where(a => a.Category != null && EF.Functions.ILike(a.Category.Name, category));
             }
 
             var totalCount = await query.CountAsync();
             var results = await query.OrderByDescending(a => a.PublishedAt)
                                      .Skip((page - 1) * pageSize)
                                      .Take(pageSize)
+                                     .Select(a => new {
+                                         a.Id,
+                                         Category = a.Category != null ? a.Category.Name : null,
+                                         a.Title,
+                                         a.Excerpt,
+                                         a.Author,
+                                         a.ImageUrl,
+                                         a.Content,
+                                         a.IsTrending,
+                                         a.IsEditorsPick,
+                                         a.IsFeatured,
+                                         a.ViewCount,
+                                         CommentCount = a.Comments.Count(),
+                                         a.PublishedAt
+                                     })
                                      .ToListAsync();
 
             return Ok(new { Items = results, TotalCount = totalCount, Page = page, PageSize = pageSize });
         }
         catch (Exception ex)
         {
-            Serilog.Log.Error(ex, "Database error fetching articles. This is often a timeout on Render's free tier.");
-            return StatusCode(500, new { Message = "Database connection error (Possible timeout). Please wait 30 seconds and refresh.", Detail = ex.Message });
+            Serilog.Log.Error(ex, "Database error fetching articles.");
+            return StatusCode(500, new { Message = "Database connection error.", Detail = ex.Message });
         }
     }
 
     [HttpGet("trending")]
-    public async Task<IEnumerable<Article>> GetTrending()
+    public async Task<IEnumerable<object>> GetTrending()
     {
-        return await _context.Articles.AsNoTracking().Where(a => a.IsTrending).ToListAsync();
+        return await _context.Articles.AsNoTracking()
+            .Where(a => a.IsTrending)
+            .Include(a => a.Category)
+            .Select(a => new {
+                 a.Id,
+                 Category = a.Category != null ? a.Category.Name : null,
+                 a.Title,
+                 a.Excerpt,
+                 a.Author,
+                 a.ImageUrl,
+                 a.Content,
+                 a.IsTrending,
+                 a.IsEditorsPick,
+                 a.IsFeatured,
+                 a.ViewCount,
+                 CommentCount = a.Comments.Count(),
+                 a.PublishedAt
+             })
+            .ToListAsync();
     }
     
     [HttpGet("editors-picks")]
-    public async Task<IEnumerable<Article>> GetEditorsPicks()
+    public async Task<IEnumerable<object>> GetEditorsPicks()
     {
-        // Now using the dedicated flag
-        return await _context.Articles.AsNoTracking().Where(a => a.IsEditorsPick).Take(4).ToListAsync();
+        return await _context.Articles.AsNoTracking()
+            .Where(a => a.IsEditorsPick)
+            .Include(a => a.Category)
+            .Take(4)
+            .Select(a => new {
+                 a.Id,
+                 Category = a.Category != null ? a.Category.Name : null,
+                 a.Title,
+                 a.Excerpt,
+                 a.Author,
+                 a.ImageUrl,
+                 a.Content,
+                 a.IsTrending,
+                 a.IsEditorsPick,
+                 a.IsFeatured,
+                 a.ViewCount,
+                 CommentCount = a.Comments.Count(),
+                 a.PublishedAt
+             })
+            .ToListAsync();
     }
 
     [HttpGet("featured")]
-    public async Task<Article?> GetFeatured()
+    public async Task<object?> GetFeatured()
     {
-        return await _context.Articles.AsNoTracking().FirstOrDefaultAsync(a => a.IsFeatured);
+        var article = await _context.Articles.AsNoTracking()
+            .Include(a => a.Category)
+            .Include(a => a.Comments)
+            .FirstOrDefaultAsync(a => a.IsFeatured);
+            
+        if (article == null) return null;
+        
+        return new {
+             article.Id,
+             Category = article.Category != null ? article.Category.Name : null,
+             article.Title,
+             article.Excerpt,
+             article.Author,
+             article.ImageUrl,
+             article.Content,
+             article.IsTrending,
+             article.IsEditorsPick,
+             article.IsFeatured,
+             article.ViewCount,
+             CommentCount = article.Comments.Count(),
+             article.PublishedAt
+        };
     }
 
     [HttpGet("{id}")]
     public async Task<IActionResult> GetArticle(Guid id)
     {
-        var article = await _context.Articles.FindAsync(id);
+        var article = await _context.Articles
+            .Include(a => a.Category)
+            .Include(a => a.Comments)
+            .FirstOrDefaultAsync(a => a.Id == id);
 
         if (article == null)
         {
             return NotFound();
         }
 
-        // Increment View Count
+
         article.ViewCount++;
         await _context.SaveChangesAsync();
         
-        return Ok(article);
+        return Ok(new {
+             article.Id,
+             Category = article.Category != null ? article.Category.Name : null,
+             article.Title,
+             article.Excerpt,
+             article.Author,
+             article.ImageUrl,
+             article.Content,
+             article.IsTrending,
+             article.IsEditorsPick,
+             article.IsFeatured,
+             article.ViewCount,
+             CommentCount = article.Comments.Count(),
+             article.PublishedAt
+        });
     }
 
     [HttpPost]
-    [Microsoft.AspNetCore.Authorization.Authorize]
-    public async Task<IActionResult> Create([FromBody] Article article)
+    [Authorize(Roles = "Admin,Editor")]
+    public async Task<IActionResult> Create([FromBody] ArticleDto articleDto)
     {
-        article.PublishedAt = DateTime.UtcNow; 
+
+        var category = await _context.Categories.FirstOrDefaultAsync(c => c.Name == articleDto.Category);
+        if (category == null) 
+        {
+
+             return BadRequest($"Category '{articleDto.Category}' not found.");
+        }
+
+        var article = new Article
+        {
+            Title = articleDto.Title,
+            CategoryId = category.Id,
+            Excerpt = articleDto.Excerpt,
+            Author = articleDto.Author,
+            ImageUrl = articleDto.ImageUrl,
+            Content = articleDto.Content,
+            IsTrending = articleDto.IsTrending,
+            IsEditorsPick = articleDto.IsEditorsPick,
+            IsFeatured = articleDto.IsFeatured,
+            PublishedAt = DateTime.UtcNow
+        };
         
         _context.Articles.Add(article);
         await _context.SaveChangesAsync();
@@ -99,54 +209,57 @@ public class ArticlesController : ControllerBase
     }
 
     [HttpPut("{id}")]
-    [Microsoft.AspNetCore.Authorization.Authorize]
-    public async Task<IActionResult> Update(Guid id, [FromBody] Article article)
+    [Authorize(Roles = "Admin,Editor")]
+    public async Task<IActionResult> Update(Guid id, [FromBody] ArticleDto articleDto)
     {
-        if (id != article.Id)
-        {
-            return BadRequest();
-        }
+
 
         var existingArticle = await _context.Articles.FindAsync(id);
-        
-        if (existingArticle == null)
-        {
-            return NotFound();
-        }
+        if (existingArticle == null) return NotFound();
 
-        existingArticle.Title = article.Title;
-        existingArticle.Category = article.Category;
-        existingArticle.Author = article.Author;
-        existingArticle.ImageUrl = article.ImageUrl;
-        existingArticle.Excerpt = article.Excerpt;
-        existingArticle.Content = article.Content; // Update content
-        existingArticle.IsTrending = article.IsTrending;
-        existingArticle.IsEditorsPick = article.IsEditorsPick;
-        existingArticle.IsFeatured = article.IsFeatured;
-        
-        // Don't update Id
 
+        var category = await _context.Categories.FirstOrDefaultAsync(c => c.Name == articleDto.Category);
+        if (category == null) return BadRequest("Invalid Category");
+
+        existingArticle.Title = articleDto.Title;
+        existingArticle.CategoryId = category.Id; 
+        existingArticle.Author = articleDto.Author;
+        existingArticle.ImageUrl = articleDto.ImageUrl;
+        existingArticle.Excerpt = articleDto.Excerpt;
+        existingArticle.Content = articleDto.Content; 
+        existingArticle.IsTrending = articleDto.IsTrending;
+        existingArticle.IsEditorsPick = articleDto.IsEditorsPick;
+        existingArticle.IsFeatured = articleDto.IsFeatured;
+        
         try
         {
             await _context.SaveChangesAsync();
         }
         catch (DbUpdateConcurrencyException)
         {
-            if (!_context.Articles.Any(e => e.Id == id))
-            {
-                return NotFound();
-            }
-            else
-            {
-                throw;
-            }
+            if (!_context.Articles.Any(e => e.Id == id)) return NotFound();
+            else throw;
         }
 
         return NoContent();
     }
 
+    public class ArticleDto
+    {
+        public Guid? Id { get; set; }
+        public string Title { get; set; } = "";
+        public string Category { get; set; } = "";
+        public string Excerpt { get; set; } = "";
+        public string Author { get; set; } = "";
+        public string ImageUrl { get; set; } = "";
+        public string Content { get; set; } = "";
+        public bool IsTrending { get; set; }
+        public bool IsEditorsPick { get; set; }
+        public bool IsFeatured { get; set; }
+    }
+
     [HttpDelete("{id}")]
-    [Microsoft.AspNetCore.Authorization.Authorize]
+    [Authorize(Roles = "Admin,Editor")]
     public async Task<IActionResult> Delete(Guid id)
     {
         var article = await _context.Articles.FindAsync(id);

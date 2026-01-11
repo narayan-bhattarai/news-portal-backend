@@ -44,14 +44,14 @@ public class ContactController : ControllerBase
     }
 
     [HttpGet]
-    [Authorize]
+    [Authorize(Roles = "Admin,Editor")]
     public async Task<ActionResult<IEnumerable<ContactSubmission>>> GetMessages()
     {
         return await _context.ContactSubmissions.OrderByDescending(m => m.SubmittedAt).ToListAsync();
     }
 
     [HttpDelete("{id}")]
-    [Authorize]
+    [Authorize(Roles = "Admin,Editor")]
     public async Task<IActionResult> DeleteMessage(Guid id)
     {
         var msg = await _context.ContactSubmissions.FindAsync(id);

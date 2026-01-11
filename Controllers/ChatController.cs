@@ -28,7 +28,7 @@ public class ChatController : ControllerBase
     }
 
     [HttpGet]
-    [Authorize]
+    [Authorize(Roles = "Admin,Editor")]
     public async Task<IActionResult> GetHistory()
     {
         try
@@ -42,14 +42,14 @@ public class ChatController : ControllerBase
             var currentUserId = user.Id;
             var deleteToken = "," + currentUserId.ToString() + ",";
 
-            // Use string.Concat or check for null to avoid 500 in Postgres if DeletedFor is null
+
             var allMessages = await _context.ChatMessages.AsNoTracking()
                 .Where(m => (m.SenderUserId == currentUserId || m.ReceiverUserId == currentUserId))
                 .OrderByDescending(m => m.Timestamp)
                 .Take(100)
                 .ToListAsync();
 
-            // Filter in-memory for DeletedFor to avoid EF Core 500s on null columns
+
             var filteredMessages = allMessages
                 .Where(m => string.IsNullOrEmpty(m.DeletedFor) || !m.DeletedFor.Contains(deleteToken))
                 .ToList();
@@ -82,18 +82,14 @@ public class ChatController : ControllerBase
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> ClearAllHistory()
     {
-        // Admin Force Clear - actually remove data? 
-        // Or should this also be soft delete?
-        // "ClearAllHistory" usually implies a hard reset for admin/testing. 
-        // Keep as hard delete for now to maintain existing behavior for "Clear All", or implement logic later.
-        // Assuming strict "Delete Conversation" request, we won't touch this endpoint deeply unless asked.
+
         _context.ChatMessages.RemoveRange(_context.ChatMessages);
         await _context.SaveChangesAsync();
         return Ok();
     }
 
     [HttpDelete("{username}")]
-    [Authorize]
+    [Authorize(Roles = "Admin,Editor")]
     public async Task<IActionResult> DeleteConversation(string username)
     {
         var currentUsername = User.Identity?.Name;
@@ -107,13 +103,13 @@ public class ChatController : ControllerBase
         var currentId = currentUser.Id;
         var targetId = targetUser.Id;
 
-        // 1. Find messages between these two users
+
         var messages = await _context.ChatMessages.Where(m => 
             (m.SenderUserId == currentId && m.ReceiverUserId == targetId) || 
             (m.SenderUserId == targetId && m.ReceiverUserId == currentId)
         ).ToListAsync();
 
-        // 2. Soft Delete logic
+
         var toDelete = new List<ChatMessage>();
         var toUpdate = new List<ChatMessage>();
 
@@ -135,7 +131,7 @@ public class ChatController : ControllerBase
                 }
             }
 
-            // Check if BOTH Sender and Receiver have deleted it
+
             var senderToken = "," + msg.SenderUserId.ToString() + ",";
             var receiverToken = "," + msg.ReceiverUserId.ToString() + ",";
             
@@ -149,7 +145,7 @@ public class ChatController : ControllerBase
             }
         }
 
-        // 3. Apply Changes
+
         if (toDelete.Any()) _context.ChatMessages.RemoveRange(toDelete);
         if (toUpdate.Any()) _context.ChatMessages.UpdateRange(toUpdate);
         

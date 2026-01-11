@@ -95,22 +95,15 @@ CREATE TABLE "Articles" (
     "Id" uuid NOT NULL DEFAULT gen_random_uuid(),
     "Title" text NOT NULL,
     "Content" text NOT NULL,
-    "Excerpt" text,  -- Matches Article.cs (was Summary)
+    "Excerpt" text,
     "Author" text NOT NULL,
-    "Category" text, -- Matches Article.cs (Simple string support)
-    "CategoryId" uuid, -- Kept for relational integrity if needed later
-    "PublishedAt" timestamp with time zone NOT NULL DEFAULT now(), -- Matches Article.cs (was CreatedAt)
+    "CategoryId" uuid, -- Normalized Foreign Key
+    "PublishedAt" timestamp with time zone NOT NULL DEFAULT now(),
     "ImageUrl" text,
-    "ViewCount" integer NOT NULL DEFAULT 0, -- Matches Article.cs (was Views)
+    "ViewCount" integer NOT NULL DEFAULT 0,
     "IsTrending" boolean NOT NULL DEFAULT FALSE,
     "IsFeatured" boolean NOT NULL DEFAULT FALSE,
     "IsEditorsPick" boolean NOT NULL DEFAULT FALSE,
-    "Source" text,
-    "SourceUrl" text,
-    "Status" text NOT NULL DEFAULT 'Published',
-    "AiSummary" text,
-    "Sentiment" text,
-    "ReadingTime" integer,
     CONSTRAINT "PK_Articles" PRIMARY KEY ("Id"),
     CONSTRAINT "FK_Articles_Categories_CategoryId" FOREIGN KEY ("CategoryId") REFERENCES "Categories" ("Id") ON DELETE SET NULL
 );
@@ -122,6 +115,7 @@ CREATE TABLE "ChatMessages" (
     "Content" text NOT NULL,
     "Timestamp" timestamp with time zone NOT NULL DEFAULT now(),
     "IsRead" boolean NOT NULL DEFAULT FALSE,
+    "IsDeleted" boolean NOT NULL DEFAULT FALSE,
     "DeletedFor" text DEFAULT '',
     CONSTRAINT "PK_ChatMessages" PRIMARY KEY ("Id"),
     CONSTRAINT "FK_ChatMessages_Users_Sender" FOREIGN KEY ("SenderUserId") REFERENCES "Users" ("Id") ON DELETE CASCADE,
@@ -146,6 +140,17 @@ CREATE TABLE "Pages" (
     CONSTRAINT "PK_Pages" PRIMARY KEY ("Slug")
 );
 
+CREATE TABLE "Comments" (
+    "Id" uuid NOT NULL,
+    "ArticleId" uuid NOT NULL,
+    "UserId" uuid NOT NULL,
+    "Content" text NOT NULL,
+    "CreatedAt" timestamp with time zone NOT NULL DEFAULT now(),
+    CONSTRAINT "PK_Comments" PRIMARY KEY ("Id"),
+    CONSTRAINT "FK_Comments_Articles_ArticleId" FOREIGN KEY ("ArticleId") REFERENCES "Articles" ("Id") ON DELETE CASCADE,
+    CONSTRAINT "FK_Comments_Users_UserId" FOREIGN KEY ("UserId") REFERENCES "Users" ("Id") ON DELETE CASCADE
+);
+
 -- 3. Indexes
 
 CREATE INDEX "IX_Users_NormalizedUserName" ON "Users" ("NormalizedUserName");
@@ -156,14 +161,16 @@ CREATE INDEX "IX_UserClaims_UserId" ON "UserClaims" ("UserId");
 CREATE INDEX "IX_UserLogins_UserId" ON "UserLogins" ("UserId");
 CREATE INDEX "IX_RoleClaims_RoleId" ON "RoleClaims" ("RoleId");
 
-CREATE INDEX "IX_Articles_Category" ON "Articles" ("Category"); -- Index on string category
 CREATE INDEX "IX_Articles_CategoryId" ON "Articles" ("CategoryId");
+CREATE INDEX "IX_Articles_PublishedAt" ON "Articles" ("PublishedAt");
 CREATE INDEX "IX_Articles_IsTrending" ON "Articles" ("IsTrending");
 CREATE INDEX "IX_Articles_IsFeatured" ON "Articles" ("IsFeatured");
 CREATE INDEX "IX_Articles_IsEditorsPick" ON "Articles" ("IsEditorsPick");
 CREATE INDEX "IX_ChatMessages_SenderUserId" ON "ChatMessages" ("SenderUserId");
 CREATE INDEX "IX_ChatMessages_ReceiverUserId" ON "ChatMessages" ("ReceiverUserId");
 CREATE INDEX "IX_ContactSubmissions_SubmittedAt" ON "ContactSubmissions" ("SubmittedAt");
+CREATE INDEX "IX_Comments_ArticleId" ON "Comments" ("ArticleId");
+CREATE INDEX "IX_Comments_UserId" ON "Comments" ("UserId");
 
 -- 4. Seed Data (Categories Only - Users/Roles/Admin handled by C# Seeding)
 INSERT INTO "Categories" ("Name")
