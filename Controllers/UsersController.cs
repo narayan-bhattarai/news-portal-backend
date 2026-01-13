@@ -32,7 +32,7 @@ public class UsersController : ControllerBase
 
     [HttpGet]
     [Authorize]
-    public async Task<ActionResult<IEnumerable<UserDto>>> GetUsers()
+    public async Task<ActionResult<IEnumerable<UserDto>>> GetUsers([FromQuery] bool employees = false)
     {
         var users = await _userManager.Users.ToListAsync();
         var userDtos = new List<UserDto>();
@@ -40,11 +40,18 @@ public class UsersController : ControllerBase
         foreach (var user in users)
         {
             var roles = await _userManager.GetRolesAsync(user);
+            var role = roles.FirstOrDefault() ?? "Viewer";
+
+            if (employees)
+            {
+                if (role != "Admin" && role != "Editor") continue;
+            }
+
             userDtos.Add(new UserDto
             {
                 Id = user.Id,
                 Username = user.UserName ?? "",
-                Role = roles.FirstOrDefault() ?? "Viewer",
+                Role = role,
                 Email = user.Email,
                 FullName = user.FullName,
                 CreatedAt = user.CreatedAt,
